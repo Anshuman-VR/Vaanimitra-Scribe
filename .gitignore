@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.env
+.venv
+venv/
+ENV/
+
+# Secrets & Keys (Important: Don't commit self-signed certs if they are meant to be private, though for PoC it might not matter, best practice is to ignore them)
+key.pem
+cert.pem
+
+# Models & Large Static Assets
+# Uncomment below if you DO NOT want to commit the onnx/wasm models to git (they are quite large)
+# /static/*.onnx
+# /static/*.wasm
+
+# macOS
+.DS_Store

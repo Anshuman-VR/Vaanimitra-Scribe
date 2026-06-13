@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="AI Scribe — Voice-driven exam interface for PwD students. Continuous dictation powered by Whisper Large V3.">
+  <title>AI Scribe — Continuous Dictation</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      background: #0d1117;
+      color: #e6edf3;
+      min-height: 100vh;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      max-width: 860px;
+      margin: 0 auto;
+    }
+
+    /* ── Header ─────────────────────────────────────────────────── */
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    h1 { font-size: 1.45rem; color: #f0f6fc; font-weight: 600; }
+    .subtitle { font-size: 0.78rem; color: #7d8590; margin-top: 3px; }
+
+    /* ── Connection pill ────────────────────────────────────────── */
+    .ws-pill {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 12px;
+      border-radius: 20px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      font-size: 0.75rem;
+      color: #7d8590;
+      white-space: nowrap;
+    }
+    .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: #484f58;
+      flex-shrink: 0;
+      transition: background 0.3s;
+    }
+    .dot.connected { background: #3fb950; }
+    .dot.error     { background: #f85149; }
+
+    /* ── Start/Stop button ──────────────────────────────────────── */
+    #startBtn {
+      width: 100%;
+      padding: 13px;
+      background: #238636;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 0.98rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, opacity 0.2s;
+      letter-spacing: 0.01em;
+    }
+    #startBtn:hover:not(:disabled) { background: #2ea043; }
+    #startBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+    #startBtn.stopping { background: #6e3b3b; }
+    #startBtn.stopping:hover { background: #8b1a1a; }
+
+    /* ── VAD status bar ─────────────────────────────────────────── */
+    #vadBar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      border-radius: 8px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      font-size: 0.83rem;
+      color: #7d8590;
+    }
+    #vadBar.visible { display: flex; }
+
+    .vad-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #3fb950;
+      flex-shrink: 0;
+      transition: background 0.15s;
+    }
+    .vad-dot.speaking {
+      background: #f0883e;
+      animation: speak-pulse 0.5s ease-in-out infinite alternate;
+    }
+    @keyframes speak-pulse {
+      from { transform: scale(1);   box-shadow: 0 0 0 0   rgba(240,136,62,0.5); }
+      to   { transform: scale(1.35); box-shadow: 0 0 0 5px rgba(240,136,62,0);   }
+    }
+
+    /* ── Transcript area ────────────────────────────────────────── */
+    #transcript {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 10px;
+      padding: 18px 20px;
+      min-height: 220px;
+      max-height: 420px;
+      overflow-y: auto;
+      font-size: 1.05rem;
+      line-height: 1.9;
+      scroll-behavior: smooth;
+    }
+    .placeholder { color: #484f58; }
+
+    /* Completed sentence chunks flow inline like a scribe writing */
+    .sent { display: inline; margin-right: 4px; }
+
+    /* Individual word spans */
+    .w { display: inline; }
+    .w.lo {
+      background: rgba(248,81,73,0.12);
+      color: #f85149;
+      border-radius: 3px;
+      padding: 0 2px;
+      cursor: help;
+    }
+
+    /* .sent.pending is intentionally unstyled.
+       It looks identical to committed text so the student sees
+       a single continuous transcript with no visual interruptions.
+       The .pending class exists only to identify the paragraph in JS. */
+
+    /* ── Command feedback ───────────────────────────────────────── */
+    #cmdBar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 16px;
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-left: 3px solid #388bfd;
+      border-radius: 8px;
+      font-size: 0.83rem;
+    }
+    #cmdBar.visible { display: flex; }
+
+    /* ── Stats row ──────────────────────────────────────────────── */
+    .stats {
+      display: flex;
+      gap: 18px;
+      font-size: 0.73rem;
+      color: #7d8590;
+      padding: 0 2px;
+    }
+
+    /* ── Debug log ──────────────────────────────────────────────── */
+    details {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 8px;
+      font-size: 0.71rem;
+    }
+    summary {
+      padding: 8px 14px;
+      cursor: pointer;
+      color: #7d8590;
+      user-select: none;
+      list-style: none;
+    }
+    summary::before { content: "▶ "; font-size: 0.65rem; }
+    details[open] summary::before { content: "▼ "; }
+    #log {
+      font-family: 'Cascadia Code', 'Consolas', 'Courier New', monospace;
+      color: #6e7681;
+      max-height: 130px;
+      overflow-y: auto;
+      padding: 0 14px 10px;
+    }
+    #log .le { padding: 1px 0; }
+    #log .err { color: #f85149; }
+    #log .ok  { color: #3fb950; }
+    #log .cmd { color: #388bfd; }
+  </style>
+</head>
+<body>
+
+<!-- ── Header ────────────────────────────────────────────────────────────── -->
+<div class="header">
+  <div>
+    <h1>AI Scribe</h1>
+    <div class="subtitle">Whisper Large V3 · H200 GPU 3 · Silero VAD · Continuous Dictation PoC</div>
+  </div>
+  <div class="ws-pill">
+    <div class="dot" id="wsDot"></div>
+    <span id="wsLabel">Not connected</span>
+  </div>
+</div>
+
+<!-- ── Start/Stop ────────────────────────────────────────────────────────── -->
+<button id="startBtn">🎤 Start Listening</button>
+
+<!-- ── VAD status ────────────────────────────────────────────────────────── -->
+<div id="vadBar">
+  <div class="vad-dot" id="vadDot"></div>
+  <span id="vadLabel">Listening for speech…</span>
+</div>
+
+<!-- ── Transcript ─────────────────────────────────────────────────────────── -->
+<div id="transcript" role="log" aria-live="polite" aria-label="Transcript">
+  <span class="placeholder">Transcript will appear here…</span>
+</div>
+
+
+
+<!-- ── Command feedback ──────────────────────────────────────────────────── -->
+<div id="cmdBar" role="status">
+  <span id="cmdIcon">⚡</span>
+  <span id="cmdText"></span>
+</div>
+
+<!-- ── Stats ─────────────────────────────────────────────────────────────── -->
+<div class="stats">
+  <span id="statInf"></span>
+  <span id="statWords"></span>
+  <span id="statChunks"></span>
+</div>
+
+<!-- ── Debug log ─────────────────────────────────────────────────────────── -->
+<details>
+  <summary>Debug log</summary>
+  <div id="log"></div>
+</details>
+
+
+<script type="module">
+// ════════════════════════════════════════════════════════════════════════════
+//  AI Scribe — client-side logic
+//
+//  Loading sequence (must happen in this order):
+//    1. Fetch VAD config from server (/config)
+//    2. Import onnxruntime-web ESM bundle → set window.ort + wasmPaths
+//    3. Dynamic-load bundle.min.js (UMD) → reads window.ort → sets window.vad
+//    4. Create MicVAD with config → requests microphone
+//    5. Connect WebSocket
+//    6. micVad.start() — begins continuous listening
+// ════════════════════════════════════════════════════════════════════════════
+
+// ── State ─────────────────────────────────────────────────────────────────
+let ws       = null;   // main WebSocket: committed sentence pipeline
+let wsStream = null;   // stream WebSocket: live interim transcription
+let micVad   = null;
+let started  = false;
+let vadCfg   = null;   // loaded from /config
+
+// Audio capture for streaming interim transcription
+let audioCtxStream    = null;   // AudioContext at 16kHz
+let scriptProcessor   = null;   // ScriptProcessorNode
+let speechBuffer      = [];     // Float32Array chunks accumulated during speech
+let speakingForStream = false;  // true between onSpeechStart and onSpeechEnd
+let streamingTimer    = null;   // setInterval handle
+
+let wordCount  = 0;
+let chunkCount = 0;
+
+const WS_URL        = `wss://${location.host}/ws`;
+const WS_STREAM_URL = `wss://${location.host}/ws/stream`;
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function log(msg, cls = '') {
+  const el  = document.getElementById('log');
+  const t   = new Date().toLocaleTimeString('en-GB', { hour12: false });
+  const div = document.createElement('div');
+  div.className = 'le' + (cls ? ' ' + cls : '');
+  div.textContent = `[${t}] ${msg}`;
+  el.appendChild(div);
+  el.scrollTop = el.scrollHeight;
+  // Trim log to last 200 entries to avoid memory growth
+  while (el.children.length > 200) el.removeChild(el.firstChild);
+}
+
+function setWS(label, state) {
+  document.getElementById('wsLabel').textContent = label;
+  document.getElementById('wsDot').className     = 'dot ' + (state || '');
+}
+
+function setVAD(speaking) {
+  document.getElementById('vadDot').className  = 'vad-dot' + (speaking ? ' speaking' : '');
+  document.getElementById('vadLabel').textContent =
+    speaking ? 'Speaking detected…' : 'Listening for speech…';
+}
+
+// ── Command label map ─────────────────────────────────────────────────────
+const CMD_LABELS = {
+  nav_next:       '→ Next question',
+  nav_prev:       '← Previous question',
+  nav_goto:       '⤳ Go to question',
+  read_question:  '📖 Reading question',
+  read_answer:    '📖 Reading your answer',
+  clear_answer:   '🗑 Answer cleared',
+  delete_last:    '↩ Last sentence deleted',
+};
+
+function showCommand(action, raw) {
+  document.getElementById('cmdText').textContent =
+    `${CMD_LABELS[action] || action}  —  "${raw}"`;
+  const bar = document.getElementById('cmdBar');
+  bar.classList.add('visible');
+  clearTimeout(bar._timer);
+  bar._timer = setTimeout(() => bar.classList.remove('visible'), 4000);
+  log(`Command: ${action}  |  "${raw}"`, 'cmd');
+}
+
+// ── Transcript rendering ─────────────────────────────────────────────────
+//
+// Three functions:
+//   getPendingPara()      — get/create the live "pending" paragraph at bottom
+//   updatePending(text)   — update it with raw partial text (grey italic)
+//   commitPending(words)  — replace it with final confidence-highlighted spans
+
+function _getBox() {
+  const box = document.getElementById('transcript');
+  if (box.querySelector('.placeholder')) box.innerHTML = '';
+  return box;
+}
+
+function getPendingSpan() {
+  const box = _getBox();
+  let p = box.querySelector('.pending');
+  if (!p) {
+    p = document.createElement('span');
+    p.className = 'sent pending';
+    box.appendChild(p);
+  }
+  return p;
+}
+
+function updatePending(text) {
+  // Show raw partial text live in the transcript box
+  const p = getPendingSpan();
+  p.textContent = text + '…';
+  p.parentElement.scrollTop = p.parentElement.scrollHeight;
+}
+
+function commitPending(text, words) {
+  // Replace the pending span with final committed text + word confidence spans
+  const box = _getBox();
+  const existing = box.querySelector('.pending');
+
+  const p = document.createElement('span');
+  p.className = 'sent';  // committed — no longer pending
+
+  if (words && words.length > 0) {
+    words.forEach(w => {
+      const span = document.createElement('span');
+      span.className = 'w' + (w.low_confidence ? ' lo' : '');
+      span.textContent = w.word + ' '; // Add space between words
+      if (w.low_confidence) {
+        span.title = `confidence: ${(w.probability * 100).toFixed(0)}%`;
+      }
+      p.appendChild(span);
+    });
+    wordCount += words.length;
+  } else {
+    p.textContent = text;
+    wordCount += text.split(/\s+/).filter(Boolean).length;
+  }
+  document.getElementById('statWords').textContent = `Words: ${wordCount}`;
+
+  if (existing) box.replaceChild(p, existing);
+  else box.appendChild(p);
+
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearPending() {
+  const box = document.getElementById('transcript');
+  const p = box.querySelector('.pending');
+  if (p) p.remove();
+}
+
+// ── Stream audio capture ──────────────────────────────────────────────────
+//
+// Uses a ScriptProcessorNode to capture raw float32 audio from the mic
+// while the student is speaking, then sends cumulative audio to /ws/stream
+// every 500ms. The server transcribes it with Whisper and returns interim
+// text that updates the pending paragraph live.
+
+async function initStreamCapture() {
+  // Get mic stream (browser reuses the already-granted permission).
+  // Must be 1 channel at 16kHz to match Whisper's expected input.
+  const stream = await navigator.mediaDevices.getUserMedia({
+    audio: {
+      channelCount:     1,
+      sampleRate:       16000,
+      echoCancellation: true,
+      noiseSuppression: true,
+      autoGainControl:  true,
+    }
+  });
+
+  audioCtxStream = new AudioContext({ sampleRate: 16000 });
+  const source   = audioCtxStream.createMediaStreamSource(stream);
+
+  // ScriptProcessorNode fires every bufferSize samples (256ms at 16kHz)
+  // onaudioprocess gives us raw float32 channel data on the main thread.
+  // Deprecated but universally supported; works for PoC.
+  scriptProcessor = audioCtxStream.createScriptProcessor(4096, 1, 1);
+  scriptProcessor.onaudioprocess = (e) => {
+    if (!speakingForStream) return;
+    // Clone channel data — it's only valid synchronously within this callback
+    speechBuffer.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+  };
+
+  source.connect(scriptProcessor);
+  // ScriptProcessorNode must be connected to destination to activate
+  scriptProcessor.connect(audioCtxStream.destination);
+
+  log('Stream audio capture ready', 'ok');
+}
+
+function startSpeechStream() {
+  speechBuffer      = [];
+  speakingForStream = true;
+
+  // Send a cumulative audio chunk to /ws/stream every 500ms
+  streamingTimer = setInterval(sendInterimChunk, 500);
+}
+
+function stopSpeechStream() {
+  speakingForStream = false;
+  clearInterval(streamingTimer);
+  streamingTimer = null;
+  speechBuffer   = [];
+}
+
+function sendInterimChunk() {
+  if (!wsStream || wsStream.readyState !== WebSocket.OPEN) return;
+  if (speechBuffer.length === 0) return;
+
+  // Concatenate all captured frames into one Float32Array
+  const totalLen = speechBuffer.reduce((s, b) => s + b.length, 0);
+
+  // < 0.3s — too short for reliable Whisper output, skip
+  if (totalLen < 16000 * 0.3) return;
+
+  // > 25s — cap to stay within Whisper's 30s window
+  const capLen  = Math.min(totalLen, 16000 * 25);
+  const combined = new Float32Array(capLen);
+  let offset = 0;
+  for (const chunk of speechBuffer) {
+    const take = Math.min(chunk.length, capLen - offset);
+    combined.set(chunk.subarray(0, take), offset);
+    offset += take;
+    if (offset >= capLen) break;
+  }
+
+  wsStream.send(combined.buffer);
+}
+
+function connectStreamWS() {
+  wsStream = new WebSocket(WS_STREAM_URL);
+  wsStream.binaryType = 'arraybuffer';
+
+  wsStream.onopen  = () => log('Stream WS connected', 'ok');
+  wsStream.onerror = () => log('Stream WS error', 'err');
+  wsStream.onclose = () => log('Stream WS closed');
+
+  wsStream.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+    if (msg.type === 'interim' && msg.text) {
+      // Update the pending span in the main transcript box.
+      // Looks identical to committed text — single unified transcript.
+      updatePending(msg.text);
+    }
+  };
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────
+let wsReconnectTimer = null;
+
+function connectWS() {
+  if (ws && ws.readyState <= WebSocket.OPEN) return;  // already open or connecting
+
+  ws = new WebSocket(WS_URL);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    setWS('Connected', 'connected');
+    log('WebSocket connected', 'ok');
+    clearTimeout(wsReconnectTimer);
+  };
+
+  ws.onclose = () => {
+    setWS('Reconnecting…', 'error');
+    log('WebSocket closed — reconnecting in 2s');
+    if (started) {
+      wsReconnectTimer = setTimeout(connectWS, 2000);
+    }
+  };
+
+  ws.onerror = () => {
+    setWS('Connection error', 'error');
+    log('WebSocket error', 'err');
+  };
+
+  ws.onmessage = (event) => {
+    const msg = JSON.parse(event.data);
+
+    switch (msg.type) {
+
+      case 'transcript':
+        // Chunk complete — commit with word-level confidence highlighting.
+        // Replaces the pending span in-place.
+        commitPending(msg.text, msg.words);
+        chunkCount++;
+        document.getElementById('statInf').textContent    = `Inference: ${msg.inference_ms} ms`;
+        document.getElementById('statChunks').textContent = `Chunks: ${chunkCount}`;
+        break;
+
+      case 'command':
+        // Command detected — clear pending, show command feedback bar.
+        clearPending();
+        showCommand(msg.action, msg.raw);
+        chunkCount++;
+        document.getElementById('statInf').textContent    = `Inference: ${msg.inference_ms} ms`;
+        document.getElementById('statChunks').textContent = `Chunks: ${chunkCount}`;
+        break;
+
+      case 'empty':
+        log(`Empty chunk (noise) — ${msg.inference_ms} ms`);
+        break;
+
+      case 'error':
+        log('Server error: ' + msg.message, 'err');
+        break;
+
+      default:
+        log('Unknown message type: ' + msg.type);
+    }
+  };
+}
+
+// ── Audio chunk sender ────────────────────────────────────────────────────
+function sendAudioChunk(float32Array) {
+  // float32Array is a Float32Array (16 kHz mono) from vad-web onSpeechEnd
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    log('WS not open — dropping audio chunk', 'err');
+    return;
+  }
+  // Send the raw underlying ArrayBuffer
+  // Server: np.frombuffer(bytes, dtype=np.float32) — exact inverse
+  ws.send(float32Array.buffer);
+  log(`Sent ${float32Array.length} samples (${(float32Array.length / 16000).toFixed(2)} s)`);
+}
+
+// ── Session init (triggered by button click) ──────────────────────────────
+async function initSession() {
+  if (started) return;
+
+  const btn = document.getElementById('startBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ Initialising…';
+
+  try {
+    // 1. Fetch VAD config from server
+    log('Fetching VAD config from server…');
+    const cfgResp = await fetch('/config');
+    vadCfg = await cfgResp.json();
+    log(`VAD config: redemptionFrames=${vadCfg.redemptionFrames}, pos=${vadCfg.positiveSpeechThreshold}`, 'ok');
+
+    // 2. Import onnxruntime-web (ESM bundle, self-hosted at /static/)
+    log('Loading onnxruntime-web…');
+    const ort = await import('/static/ort.wasm.bundle.min.mjs');
+
+    // Configure WASM file paths before any InferenceSession is created.
+    // ORT will look for ort-wasm-simd-threaded.wasm at /static/.
+    ort.env.wasm.wasmPaths = '/static/';
+    // Disable threading if SharedArrayBuffer is unavailable (no COOP/COEP).
+    // Should be available since server sends those headers, but belt+suspenders.
+    if (typeof SharedArrayBuffer === 'undefined') {
+      ort.env.wasm.numThreads = 1;
+      log('SharedArrayBuffer unavailable — using single-threaded WASM');
+    }
+
+    // Expose as global so the UMD bundle (bundle.min.js) can read it.
+    // bundle.min.js UMD footer: e.vad = t(e.ort)  where e = window
+    window.ort = ort;
+    log('onnxruntime-web loaded', 'ok');
+
+    // 3. Dynamic-load vad-web UMD bundle (reads window.ort, sets window.vad)
+    log('Loading vad-web bundle…');
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src    = '/static/bundle.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('Failed to load /static/bundle.min.js'));
+      document.head.appendChild(s);
+    });
+    log('vad-web bundle loaded', 'ok');
+
+    const { MicVAD } = window.vad;
+    if (!MicVAD) throw new Error('window.vad.MicVAD not found after bundle load');
+
+    // 4. Initialise MicVAD — this triggers getUserMedia (microphone prompt)
+    log('Requesting microphone access (MicVAD.new)…');
+    micVad = await MicVAD.new({
+      workletURL:       '/static/vad.worklet.bundle.min.js',
+      model:            'v5',        // use silero_vad_v5.onnx
+      baseAssetPath:    '/static/', // vad-web fetches model from here
+      onnxWASMBasePath: '/static/', // ort loads WASM from here
+
+      // VAD thresholds (from server config via /config)
+      positiveSpeechThreshold: vadCfg.positiveSpeechThreshold,
+      negativeSpeechThreshold: vadCfg.negativeSpeechThreshold,
+      redemptionFrames:        vadCfg.redemptionFrames,     // ~1200ms silence
+      preSpeechPadFrames:      vadCfg.preSpeechPadFrames,  // 1 frame pre-roll
+      minSpeechFrames:         vadCfg.minSpeechFrames,      // ignore < ~288ms
+
+      onSpeechStart: () => {
+        setVAD(true);
+        // Start sending cumulative audio to /ws/stream every 500ms
+        startSpeechStream();
+      },
+
+      onSpeechEnd: (audio) => {
+        // Stop interim streaming — we now have the full clean chunk
+        stopSpeechStream();
+        setVAD(false);
+        // Send final audio to /ws for committed transcript + confidence scores
+        sendAudioChunk(audio);
+      },
+
+      onVADMisfire: () => {
+        stopSpeechStream();
+        clearPending();
+        setVAD(false);
+        log('VAD misfire — too short, ignored');
+      },
+    });
+    log('MicVAD ready', 'ok');
+
+    // 5. Connect both WebSockets
+    connectWS();
+    connectStreamWS();
+
+    // 6. Initialise stream audio capture (ScriptProcessorNode on mic)
+    await initStreamCapture();
+
+    // 7. Start VAD — fully passive, no buttons needed
+    micVad.start();
+    started = true;
+
+    btn.disabled    = false;
+    btn.textContent = '🔴 Stop Listening';
+    btn.classList.add('stopping');
+
+    document.getElementById('vadBar').classList.add('visible');
+    log('Session started — live transcription active', 'ok');
+
+  } catch (err) {
+    log('Init failed: ' + err.message, 'err');
+    console.error('[AI Scribe] Init error:', err);
+    btn.disabled    = false;
+    btn.textContent = '🎤 Start Listening';
+    btn.classList.remove('stopping');
+  }
+}
+
+function stopSession() {
+  if (!started) return;
+
+  stopSpeechStream();
+
+  if (micVad) { micVad.pause(); micVad = null; }
+
+  clearTimeout(wsReconnectTimer);
+  if (ws)       { ws.close();       ws       = null; }
+  if (wsStream) { wsStream.close(); wsStream = null; }
+
+  if (scriptProcessor) { scriptProcessor.disconnect(); scriptProcessor = null; }
+  if (audioCtxStream)  { audioCtxStream.close();       audioCtxStream  = null; }
+
+  started = false;
+
+  const btn = document.getElementById('startBtn');
+  btn.textContent = '🎤 Start Listening';
+  btn.classList.remove('stopping');
+
+  document.getElementById('vadBar').classList.remove('visible');
+  clearPending();
+  setWS('Disconnected', '');
+  log('Session stopped');
+}
+
+// ── Button wiring (toggle) ────────────────────────────────────────────────
+document.getElementById('startBtn').addEventListener('click', () => {
+  if (!started) initSession();
+  else          stopSession();
+});
+</script>
+
+</body>
+</html>
