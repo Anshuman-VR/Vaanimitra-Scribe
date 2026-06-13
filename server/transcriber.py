@@ -89,3 +89,28 @@ class Transcriber:
             "words":    words,
             "language": info.language,
         }
+
+    def transcribe_interim(self, audio_bytes: bytes) -> dict:
+        """
+        Transcribe one interim audio chunk for live streaming.
+        Optimized for minimum latency: beam_size=1, no word timestamps.
+        """
+        audio_np: np.ndarray = np.frombuffer(audio_bytes, dtype=np.float32).copy()
+
+        segments_iter, info = self.model.transcribe(
+            audio_np,
+            language="en",
+            beam_size=1,
+            best_of=1,
+            word_timestamps=False,
+            vad_filter=False,
+            condition_on_previous_text=False,
+        )
+
+        full_text = ""
+        for segment in segments_iter:
+            full_text += segment.text
+
+        return {
+            "text": full_text.strip(),
+        }

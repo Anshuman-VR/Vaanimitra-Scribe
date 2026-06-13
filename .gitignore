@@ -29,10 +29,7 @@ ENV/
 key.pem
 cert.pem
 
-# Models & Large Static Assets
-# Uncomment below if you DO NOT want to commit the onnx/wasm models to git (they are quite large)
-# /static/*.onnx
-# /static/*.wasm
+/static/
 
-# macOS
 .DS_Store
+*.db

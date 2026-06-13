@@ -12,6 +12,7 @@
 import asyncio
 import time
 import os
+import uuid
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -21,6 +22,8 @@ from fastapi.staticfiles import StaticFiles
 
 from server.transcriber import Transcriber
 from server.pipeline import Pipeline
+from server.database import init_db, AsyncSessionLocal, AnswerSegment, AuditLog
+from sqlalchemy import select
 from server.config import (
     VAD_REDEMPTION_FRAMES, VAD_PRE_SPEECH_PAD, VAD_MIN_SPEECH_FRAMES,
     VAD_POS_THRESHOLD, VAD_NEG_THRESHOLD,
@@ -40,6 +43,7 @@ _transcriber: Transcriber | None = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _transcriber
+    await init_db()
     _transcriber = Transcriber()   # blocks while loading Whisper onto GPU
     yield
     print("[server] Shutdown.")
@@ -65,6 +69,9 @@ async def add_cross_origin_headers(request: Request, call_next: Any):
 # Static assets: VAD ONNX + worklet + ORT WASM
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+# Client assets: CSS, JS modules
+app.mount("/client", StaticFiles(directory=os.path.join(BASE_DIR, "client")), name="client")
+
 
 @app.get("/")
 async def serve_index():
@@ -81,15 +88,28 @@ async def vad_config():
         "positiveSpeechThreshold": VAD_POS_THRESHOLD,
         "negativeSpeechThreshold": VAD_NEG_THRESHOLD,
     }
+@app.get("/api/session/{session_id}/answers")
+async def get_answers(session_id: str):
+    async with AsyncSessionLocal() as db:
+        stmt = select(AnswerSegment).where(AnswerSegment.session_id == session_id).order_by(AnswerSegment.sequence_number)
+        result = await db.execute(stmt)
+        segments = result.scalars().all()
+        return [{"id": s.id, "text": s.text, "word_count": s.word_count, "committed_at": s.committed_at} for s in segments]
 
-
-# ── WebSocket ─────────────────────────────────────────────────────────────────
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
     pipeline = Pipeline()
     client   = websocket.client
-    print(f"[WS] Connected: {client}")
+    
+    session_id = websocket.query_params.get("session_id")
+    if not session_id:
+        session_id = str(uuid.uuid4())
+        await websocket.send_json({"type": "session_init", "session_id": session_id})
+        
+    print(f"[WS] Connected: {client} | Session: {session_id}")
+
+    sequence_num = 0
 
     try:
         while True:
@@ -117,6 +137,28 @@ async def websocket_endpoint(websocket: WebSocket):
             # Complete sentence: either {type: transcript} or {type: command}
             if pipeline_out:
                 pipeline_out["inference_ms"] = inference_ms
+                
+                # Persistence logic
+                async with AsyncSessionLocal() as db:
+                    if pipeline_out["type"] == "transcript":
+                        sequence_num += 1
+                        ans = AnswerSegment(
+                            session_id=session_id,
+                            text=pipeline_out["text"],
+                            word_count=len(pipeline_out.get("words", [])),
+                            sequence_number=sequence_num
+                        )
+                        db.add(ans)
+                    
+                    log = AuditLog(
+                        session_id=session_id,
+                        utterance_type=pipeline_out["type"],
+                        raw_text=pipeline_out.get("raw", pipeline_out.get("text", "")),
+                        confidence_avg=None
+                    )
+                    db.add(log)
+                    await db.commit()
+
                 await websocket.send_json(pipeline_out)
 
     except WebSocketDisconnect:
@@ -148,41 +190,55 @@ async def stream_endpoint(websocket: WebSocket):
     await websocket.accept()
     print(f"[WS/stream] Connected: {websocket.client}")
 
-    # Guard: skip if a previous interim call is still running
-    # (prevents GPU queue pile-up if the student speaks very fast)
-    processing = False
+    queue = asyncio.Queue(maxsize=3)
 
-    try:
+    async def consume_queue():
+        loop = asyncio.get_event_loop()
         while True:
-            audio_bytes: bytes = await websocket.receive_bytes()
-
-            if processing:
-                # Previous inference still running — drop this chunk
-                continue
-
-            # Minimum viable audio length for Whisper: 0.3s = 4800 float32 samples
-            n_samples = len(audio_bytes) // 4
-            if n_samples < int(16000 * 0.3):
-                await websocket.send_json({"type": "interim", "text": ""})
-                continue
-
-            # Cap at 25s to stay within Whisper's 30s window
-            max_samples = 16000 * 25
-            if n_samples > max_samples:
-                audio_bytes = audio_bytes[: max_samples * 4]
-
-            processing = True
             try:
-                loop   = asyncio.get_event_loop()
+                audio_bytes = await queue.get()
+                
+                n_samples = len(audio_bytes) // 4
+                if n_samples < int(16000 * 0.3):
+                    await websocket.send_json({"type": "interim", "text": ""})
+                    queue.task_done()
+                    continue
+
+                max_samples = 16000 * 25
+                if n_samples > max_samples:
+                    audio_bytes = audio_bytes[: max_samples * 4]
+
+                # Run transcribe_interim (beam_size=1, no word timestamps)
                 result = await loop.run_in_executor(
-                    None, _transcriber.transcribe, audio_bytes
+                    None, _transcriber.transcribe_interim, audio_bytes
                 )
+                
                 await websocket.send_json({
                     "type": "interim",
                     "text": result["text"],
                 })
-            finally:
-                processing = False
+                queue.task_done()
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"[WS/stream] Consumer error: {e}")
+                queue.task_done()
+
+    consumer_task = asyncio.create_task(consume_queue())
+
+    try:
+        while True:
+            audio_bytes: bytes = await websocket.receive_bytes()
+            
+            # If queue is full, drop the oldest item to make room for the newest audio
+            if queue.full():
+                try:
+                    queue.get_nowait()
+                    queue.task_done()
+                except asyncio.QueueEmpty:
+                    pass
+            
+            await queue.put(audio_bytes)
 
     except WebSocketDisconnect:
         print(f"[WS/stream] Disconnected: {websocket.client}")
@@ -192,4 +248,6 @@ async def stream_endpoint(websocket: WebSocket):
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
             pass
+    finally:
+        consumer_task.cancel()
 
