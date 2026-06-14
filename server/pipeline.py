@@ -1,61 +1,77 @@
-# AI Scribe — Sentence buffer and command router
-#
-# One Pipeline instance per WebSocket connection (one per student session).
-# Stateful: buffers Whisper output across VAD chunks until sentence is complete.
-#
-# Why buffering is needed:
-#   vad-web fires onSpeechEnd after 1200ms of silence.
-#   A speaker may pause mid-sentence (e.g. "The answer is… forty-two.").
-#   Whisper returns "The answer is" without end-punctuation.
-#   Pipeline buffers it, waits for "forty-two.", then flushes the full sentence.
+import re
+import string
 
-from server.config import COMMAND_PREFIXES, SENTENCE_END_CHARS, BUFFER_MAX_CHARS
+COMMANDS = [
+    (["next question", "go to next", "move to next"], "nav_next"),
+    (["previous question", "go back", "move to previous"], "nav_prev"),
+    (["go to question"], "nav_goto"),
+    (["read question", "read the question"], "read_question"),
+    (["read my answer", "read answer", "read back my answer"], "read_answer"),
+    (["clear answer", "clear my answer", "erase answer", "erase my answer"], "clear_answer"),
+    (["delete last sentence", "remove last sentence", "undo last sentence"], "delete_last"),
+    (["submit exam", "submit my exam", "finish exam", "end exam"], "submit"),
+    (["i confirm submit", "i confirm submission", "yes submit"], "submit_confirm"),
+    (["cancel submit", "cancel submission", "don't submit", "do not submit"], "submit_cancel"),
+    (["i am ready to start the exam", "ready to start the exam", "i am ready to begin"], "student_ready"),
+]
 
+WORD_TO_NUM = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10
+}
 
 class Pipeline:
-    """
-    Stateless per-session processing pipeline.
-
-    Responsibilities
-    ----------------
-    1. Route Whisper chunks: command keywords → command response,
-       everything else → dictation transcript (committed immediately).
-    """
-
-    def __init__(self) -> None:
+    def __init__(self):
         pass
 
-    # ── Public API ────────────────────────────────────────────────────────────
-
-    def process(self, transcription: dict) -> dict | None:
-        """
-        Feed one Whisper result into the pipeline.
-        Since buffering is removed, this ALWAYS returns a complete message
-        (either command or transcript) if there is text.
-
-        Parameters
-        ----------
-        transcription
-            Dict returned by Transcriber.transcribe():
-            {text: str, words: list, language: str}
-        """
-        text  = transcription.get("text", "").strip()
-        words = transcription.get("words", [])
-
-        if not text:
+    def process(self, text: str, words: list) -> dict:
+        raw_text = text.strip()
+        if not raw_text:
             return None
 
-        # Command routing: strip trailing punctuation, lowercase, prefix-match.
-        normalized = text.lower().rstrip(".?! ")
-        for prefix, action in COMMAND_PREFIXES.items():
-            if normalized.startswith(prefix):
-                return {"type": "command", "action": action, "raw": text}
+        # Clean text for matching
+        clean_text = raw_text.lower()
+        # Remove punctuation
+        clean_text = clean_text.translate(str.maketrans('', '', string.punctuation)).strip()
 
-        # Not a command → dictation output (committed immediately)
-        return {"type": "transcript", "text": text, "words": words}
+        for phrases, action in COMMANDS:
+            for phrase in phrases:
+                if clean_text.startswith(phrase) or phrase in clean_text:
+                    if action == "nav_goto":
+                        # Try to extract number
+                        target = None
+                        digit_match = re.search(r'\d+', clean_text)
+                        if digit_match:
+                            target = int(digit_match.group())
+                        else:
+                            for word, num in WORD_TO_NUM.items():
+                                if word in clean_text:
+                                    target = num
+                                    break
+                        
+                        if target is not None:
+                            return {
+                                "type": "command",
+                                "action": "nav_goto",
+                                "target": target,
+                                "raw": raw_text
+                            }
+                        else:
+                            # If we couldn't find a target, just treat it as transcript
+                            break
+                    else:
+                        return {
+                            "type": "command",
+                            "action": action,
+                            "raw": raw_text
+                        }
 
-    def force_flush(self) -> dict | None:
-        """
-        No-op, since we no longer buffer.
-        """
-        return None
+        return {
+            "type": "transcript",
+            "text": raw_text,
+            "words": words
+        }
+
+# Allow process to be called statically for the test script
+def process(text: str, words: list) -> dict:
+    return Pipeline().process(text, words)

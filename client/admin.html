@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>AI Scribe - Admin Dashboard</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background-color: #f3f4f6; color: #0a1628; margin: 0; padding: 24px; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 24px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        h1 { color: #0a1628; border-bottom: 2px solid #e5e7eb; padding-bottom: 12px; margin-bottom: 24px; }
+        h2 { color: #2563eb; margin-top: 32px; margin-bottom: 16px; }
+        
+        .card { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 4px; padding: 16px; margin-bottom: 16px; position: relative; }
+        button { background-color: #2563eb; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background-color: #1d4ed8; }
+        button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+        
+        .btn-large { font-size: 1.2rem; padding: 12px 24px; background-color: #0a1628; margin-top: 16px; }
+        .btn-large:hover { background-color: #1e3a8a; }
+        
+        table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e5e7eb; }
+        th { background-color: #0a1628; color: white; }
+        tr:hover { background-color: #f3f4f6; }
+        a { color: #2563eb; text-decoration: none; font-weight: bold; }
+        a:hover { text-decoration: underline; }
+        
+        .meta { color: #6b7280; font-size: 0.875rem; margin-top: 8px; }
+        input { padding: 8px; border: 1px solid #d1d5db; border-radius: 4px; width: 300px; }
+        
+        .badge { display: inline-block; padding: 4px 8px; border-radius: 12px; font-size: 0.85rem; font-weight: bold; }
+        .bg-yellow { background: #fef08a; color: #854d0e; }
+        .bg-green { background: #bbf7d0; color: #166534; }
+        .bg-blue { background: #bfdbfe; color: #1e40af; }
+        .bg-gray { background: #e5e7eb; color: #374151; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI Scribe - Invigilator Dashboard</h1>
+        
+        <!-- Section 1: Exam Control -->
+        <h2>Exam Control</h2>
+        <div class="card" id="exam-card">Loading...</div>
+        
+        <!-- Section 2: Registered Students -->
+        <h2>Registered Students (live)</h2>
+        <p id="registered-count" style="font-weight: bold; margin-bottom: 8px;">0 students registered and waiting</p>
+        <table>
+            <thead>
+                <tr><th>#</th><th>Name</th><th>Register No</th><th>Status</th><th>Answers Saved</th></tr>
+            </thead>
+            <tbody id="registered-tbody"></tbody>
+        </table>
+        
+        <!-- Section 3: Submitted Sessions -->
+        <h2>Submitted Sessions</h2>
+        <table>
+            <thead>
+                <tr><th>Session ID</th><th>Name</th><th>Reg No</th><th>Started At</th><th>Submitted At</th><th>Answers Saved</th><th>PDF</th></tr>
+            </thead>
+            <tbody id="submitted-tbody"></tbody>
+        </table>
+        
+        <!-- Section 4: Audit Log Viewer -->
+        <h2>Audit Log Viewer</h2>
+        <div class="card">
+            <input type="text" id="audit-session-id" placeholder="Enter Session ID">
+            <button onclick="loadAudit()">Load Audit Log</button>
+            <table style="margin-top: 16px;" id="audit-table" style="display:none;">
+                <thead>
+                    <tr><th>Timestamp</th><th>Type</th><th>Text / Command</th><th>Confidence</th></tr>
+                </thead>
+                <tbody id="audit-tbody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        const host = location.host;
+        let currentExamStatus = "scheduled";
+
+        // Section 1
+        async function loadExam() {
+            try {
+                // Fetch actual exam status from new endpoint
+                const statusRes = await fetch('/api/admin/exam/1/status');
+                const statusData = await statusRes.json();
+                if (statusData.status) currentExamStatus = statusData.status;
+
+                const res = await fetch('/api/exam/1/questions');
+                const exam = await res.json();
+                const totalMarks = exam.questions.reduce((sum, q) => sum + q.marks, 0);
+                
+                const link = `https://${host}?exam_id=${exam.exam_id}`;
+                
+                let badge = '<span class="badge bg-yellow" id="top-status">Scheduled</span>';
+                if (currentExamStatus === "active") badge = '<span class="badge bg-green" id="top-status">Active</span>';
+                
+                document.getElementById('exam-card').innerHTML = `
+                    <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                        <div>
+                            <h3>${exam.subject} (${exam.course_code})</h3>
+                            <p><strong>Duration:</strong> ${exam.duration_minutes} minutes</p>
+                            <p><strong>Total Marks:</strong> ${totalMarks}</p>
+                            <p><strong>Status:</strong> ${badge}</p>
+                            <button onclick="navigator.clipboard.writeText('${link}'); this.textContent='Link copied!'; setTimeout(()=>this.textContent='Student Exam Link', 2000);" style="margin-top: 12px;">Copy Student Exam Link</button>
+                        </div>
+                        <div style="display:flex; flex-direction:column; gap:12px; align-items:flex-end;">
+                            <button id="onboard-btn" class="btn-large" style="background-color: #059669;" onclick="startOnboarding()" ${currentExamStatus === "active" ? "disabled" : ""}>Start Onboarding</button>
+                            <button id="start-btn" class="btn-large" onclick="startExamControl()" ${currentExamStatus === "active" ? "disabled" : ""}>▶ Start Exam</button>
+                        </div>
+                    </div>
+                `;
+            } catch(e) { console.error(e); }
+        }
+        
+        async function startOnboarding() {
+            if (!confirm("Broadcast Start Onboarding signal to all students?")) return;
+            try {
+                const res = await fetch('/api/admin/exam/1/onboard', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === "onboarding_started") {
+                    document.getElementById('onboard-btn').disabled = true;
+                    document.getElementById('onboard-btn').textContent = "Onboarding Sent";
+                    alert(`Onboarding started. ${data.notified_clients} terminals notified.`);
+                }
+            } catch(e) {
+                alert("Error starting onboarding");
+            }
+        }
+        
+        async function startExamControl() {
+            if (!confirm("Start exam for all waiting students?")) return;
+            try {
+                const res = await fetch('/api/admin/exam/1/start', { method: 'POST' });
+                const data = await res.json();
+                if (data.status === "started") {
+                    currentExamStatus = "active";
+                    document.getElementById('start-btn').disabled = true;
+                    document.getElementById('start-btn').textContent = "Exam in Progress";
+                    document.getElementById('top-status').className = "badge bg-green";
+                    document.getElementById('top-status').textContent = "Active";
+                    alert(`Exam started. ${data.notified_clients} students notified.`);
+                }
+            } catch(e) {
+                alert("Error starting exam");
+            }
+        }
+
+        // Section 2 & 3
+        async function loadSessions() {
+            try {
+                const res = await fetch('/api/admin/sessions');
+                const sessions = await res.json();
+                
+                let regHtml = '';
+                let submittedHtml = '';
+                let regCount = 0;
+                
+                // Fetch current actual exam status
+                const statusRes = await fetch('/api/admin/exam/1/status');
+                const statusData = await statusRes.json();
+                if (statusData.status && currentExamStatus !== statusData.status) {
+                    currentExamStatus = statusData.status;
+                    loadExam(); // refresh top card buttons
+                }
+                
+                sessions.forEach((s, idx) => {
+                    const shortId = s.session_id.substring(0, 8) + '...';
+                    const start = s.started_at ? new Date(s.started_at).toLocaleTimeString() : '-';
+                    const name = s.student_name || '—';
+                    const regNo = s.reg_no || '—';
+                    
+                    if (s.student_name) {
+                        if (s.status === 'active') {
+                            regCount++;
+                            let badge = '<span class="badge bg-yellow">Waiting</span>';
+                            if (currentExamStatus === 'active') badge = '<span class="badge bg-green">Active</span>';
+                            
+                            regHtml += `<tr><td>${regCount}</td><td>${name}</td><td>${regNo}</td><td>${badge}</td><td>${s.answer_count}</td></tr>`;
+                        } else if (s.status === 'submitted') {
+                            const sub = new Date(s.submitted_at).toLocaleTimeString();
+                            const pdfLink = `/api/session/${s.session_id}/pdf`;
+                            const badge = '<span class="badge bg-blue">Submitted</span>';
+                            
+                            regHtml += `<tr><td>${++regCount}</td><td>${name}</td><td>${regNo}</td><td>${badge}</td><td>${s.answer_count}</td></tr>`;
+                            submittedHtml += `<tr><td>${shortId}</td><td>${name}</td><td>${regNo}</td><td>${start}</td><td>${sub}</td><td>${s.answer_count}</td><td><a href="${pdfLink}" target="_blank">Download PDF</a></td></tr>`;
+                        }
+                    }
+                });
+                
+                if (regHtml === '') {
+                    regHtml = '<tr><td colspan="5" style="text-align:center; color:#6b7280;">No students registered yet</td></tr>';
+                }
+                if (submittedHtml === '') {
+                    submittedHtml = '<tr><td colspan="7" style="text-align:center; color:#6b7280;">No submissions yet</td></tr>';
+                }
+                
+                document.getElementById('registered-tbody').innerHTML = regHtml;
+                document.getElementById('submitted-tbody').innerHTML = submittedHtml;
+                document.getElementById('registered-count').textContent = `${regCount} student(s) registered`;
+                
+            } catch(e) { console.error(e); }
+        }
+
+        // Section 4
+        async function loadAudit() {
+            const sid = document.getElementById('audit-session-id').value.trim();
+            if(!sid) return;
+            try {
+                const res = await fetch(`/api/session/${sid}/audit`);
+                const logs = await res.json();
+                
+                let html = '';
+                logs.forEach(l => {
+                    const time = new Date(l.timestamp).toLocaleTimeString();
+                    const conf = l.confidence_avg ? (l.confidence_avg * 100).toFixed(1) + '%' : '-';
+                    html += `<tr><td>${time}</td><td>${l.utterance_type}</td><td>${l.raw_text}</td><td>${conf}</td></tr>`;
+                });
+                document.getElementById('audit-tbody').innerHTML = html;
+                document.getElementById('audit-table').style.display = 'table';
+            } catch(e) { console.error(e); alert('Error loading audit log'); }
+        }
+
+        loadExam();
+        loadSessions();
+        setInterval(loadSessions, 10000);
+    </script>
+</body>
+</html>

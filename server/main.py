@@ -13,6 +13,8 @@ import asyncio
 import time
 import os
 import uuid
+import json
+from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -22,8 +24,9 @@ from fastapi.staticfiles import StaticFiles
 
 from server.transcriber import Transcriber
 from server.pipeline import Pipeline
-from server.database import init_db, AsyncSessionLocal, AnswerSegment, AuditLog
-from sqlalchemy import select
+from server.database import init_db, AsyncSessionLocal, AnswerSegment, AuditLog, seed_demo_exam, Exam, Question, Session as DBSession
+from sqlalchemy import select, delete
+from datetime import datetime
 from server.config import (
     VAD_REDEMPTION_FRAMES, VAD_PRE_SPEECH_PAD, VAD_MIN_SPEECH_FRAMES,
     VAD_POS_THRESHOLD, VAD_NEG_THRESHOLD,
@@ -36,6 +39,8 @@ BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLIENT_HTML = os.path.join(BASE_DIR, "client", "index.html")
 STATIC_DIR  = os.path.join(BASE_DIR, "static")
 
+exam_connections: dict[str, set] = defaultdict(set)
+
 # ── Singleton model ───────────────────────────────────────────────────────────
 _transcriber: Transcriber | None = None
 
@@ -44,6 +49,8 @@ _transcriber: Transcriber | None = None
 async def lifespan(app: FastAPI):
     global _transcriber
     await init_db()
+    async with AsyncSessionLocal() as db:
+        await seed_demo_exam(db)
     _transcriber = Transcriber()   # blocks while loading Whisper onto GPU
     yield
     print("[server] Shutdown.")
@@ -96,30 +103,252 @@ async def get_answers(session_id: str):
         segments = result.scalars().all()
         return [{"id": s.id, "text": s.text, "word_count": s.word_count, "committed_at": s.committed_at} for s in segments]
 
+@app.get("/api/exam/{exam_id}/questions")
+async def get_exam_questions(exam_id: str):
+    async with AsyncSessionLocal() as db:
+        exam = await db.get(Exam, exam_id)
+        if not exam:
+            return {"error": "Exam not found"}
+            
+        stmt = select(Question).where(Question.exam_id == exam_id).order_by(Question.part, Question.q_number)
+        result = await db.execute(stmt)
+        questions = result.scalars().all()
+        
+        return {
+            "exam_id": exam.id,
+            "subject": exam.subject,
+            "course_code": exam.course_code,
+            "duration_minutes": exam.duration_minutes,
+            "questions": [
+                {"id": q.id, "part": q.part, "q_number": q.q_number, "marks": q.marks, "text": q.text, "has_image": q.has_image}
+                for q in questions
+            ]
+        }
+
+@app.post("/api/session/{session_id}/submit")
+async def submit_session(session_id: str, request: Request):
+    from server.pdf_generator import generate_answer_pdf
+    
+    data = await request.json()
+    answers_dict = data.get("answers", {})
+    
+    async with AsyncSessionLocal() as db:
+        # Delete existing answer segments for this session
+        await db.execute(delete(AnswerSegment).where(AnswerSegment.session_id == session_id))
+        
+        # Insert the final answers dict
+        for qid, text in answers_dict.items():
+            if text.strip():
+                ans = AnswerSegment(
+                    session_id=session_id,
+                    question_id=qid,
+                    text=text,
+                    word_count=len(text.split()),
+                    sequence_number=1
+                )
+                db.add(ans)
+        
+        # Update Session
+        session = await db.get(DBSession, session_id)
+        if session:
+            session.submitted_at = datetime.utcnow()
+            session.status = "submitted"
+        
+        # Audit Log
+        log = AuditLog(
+            session_id=session_id,
+            utterance_type="system",
+            raw_text="Exam submitted by candidate",
+            confidence_avg=None
+        )
+        db.add(log)
+        
+        await db.commit()
+        
+        # Generate PDF (will be saved to disk)
+        await generate_answer_pdf(session_id, db)
+        
+        return {"status": "submitted", "pdf_url": f"/api/session/{session_id}/pdf"}
+
+@app.get("/api/session/{session_id}/pdf")
+async def get_pdf(session_id: str):
+    from fastapi.responses import FileResponse
+    pdf_path = os.path.join(BASE_DIR, "answers", f"{session_id}.pdf")
+    if not os.path.exists(pdf_path):
+        return {"error": "PDF not found"}
+    return FileResponse(pdf_path, media_type="application/pdf", headers={"Content-Disposition": f'inline; filename="answers_{session_id}.pdf"'})
+
+@app.get("/api/session/{session_id}/audit")
+async def get_audit(session_id: str):
+    async with AsyncSessionLocal() as db:
+        stmt = select(AuditLog).where(AuditLog.session_id == session_id).order_by(AuditLog.timestamp)
+        result = await db.execute(stmt)
+        logs = result.scalars().all()
+        return [
+            {
+                "timestamp": log.timestamp.isoformat(),
+                "utterance_type": log.utterance_type,
+                "raw_text": log.raw_text,
+                "confidence_avg": log.confidence_avg
+            }
+            for log in logs
+        ]
+
+@app.get("/api/admin/sessions")
+async def admin_get_sessions():
+    from sqlalchemy import func
+    async with AsyncSessionLocal() as db:
+        stmt = (
+            select(DBSession, func.count(AnswerSegment.id).label('answer_count'))
+            .outerjoin(AnswerSegment, DBSession.id == AnswerSegment.session_id)
+            .group_by(DBSession.id)
+            .order_by(DBSession.started_at.desc())
+        )
+        result = await db.execute(stmt)
+        
+        return [
+            {
+                "session_id": row.Session.id,
+                "student_name": row.Session.student_name,
+                "reg_no": row.Session.reg_no,
+                "started_at": row.Session.started_at.isoformat() if row.Session.started_at else None,
+                "submitted_at": row.Session.submitted_at.isoformat() if row.Session.submitted_at else None,
+                "status": row.Session.status,
+                "answer_count": row.answer_count
+            }
+            for row in result.all()
+        ]
+
+@app.get("/api/admin/exam/{exam_id}/status")
+async def get_exam_status(exam_id: str):
+    async with AsyncSessionLocal() as db:
+        exam = await db.get(Exam, exam_id)
+        if not exam:
+            return {"error": "Exam not found"}
+        return {"status": exam.status}
+
+@app.post("/api/admin/exam/{exam_id}/onboard")
+async def start_onboarding(exam_id: str):
+    notified = 0
+    if exam_id in exam_connections:
+        for ws in list(exam_connections[exam_id]):
+            try:
+                await ws.send_json({"type": "start_onboarding"})
+                notified += 1
+            except Exception:
+                pass
+    return {"status": "onboarding_started", "notified_clients": notified}
+
+@app.post("/api/admin/exam/{exam_id}/start")
+async def start_exam(exam_id: str):
+    async with AsyncSessionLocal() as db:
+        exam = await db.get(Exam, exam_id)
+        if not exam:
+            return {"error": "Exam not found"}
+        
+        exam.status = "active"
+        await db.commit()
+        
+        # Broadcast to all connected WebSockets for this exam
+        notified = 0
+        if exam_id in exam_connections:
+            for ws in list(exam_connections[exam_id]):
+                try:
+                    await ws.send_json({"type": "exam_started"})
+                    notified += 1
+                except Exception:
+                    pass
+                    
+        return {"status": "started", "notified_clients": notified}
+
+@app.get("/admin")
+async def serve_admin():
+    return FileResponse(os.path.join(BASE_DIR, "client", "admin.html"))
+
 @app.websocket("/ws")
-async def websocket_endpoint(websocket: WebSocket):
+async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
     await websocket.accept()
+    exam_connections[exam_id].add(websocket)
+    
     pipeline = Pipeline()
     client   = websocket.client
     
     session_id = websocket.query_params.get("session_id")
     if not session_id:
         session_id = str(uuid.uuid4())
-        await websocket.send_json({"type": "session_init", "session_id": session_id})
+        
+    await websocket.send_json({"type": "session_init", "session_id": session_id})
         
     print(f"[WS] Connected: {client} | Session: {session_id}")
+
+    current_question_id = None
+    
+    # Send exam_load immediately and create Session
+    async with AsyncSessionLocal() as db:
+        sess = await db.get(DBSession, session_id)
+        if not sess:
+            sess = DBSession(id=session_id, student_id=None, exam_id=exam_id, started_at=datetime.utcnow(), status="active")
+            db.add(sess)
+            await db.commit()
+
+        exam = await db.get(Exam, exam_id)
+        if exam:
+            stmt = select(Question).where(Question.exam_id == exam_id).order_by(Question.part, Question.q_number)
+            result = await db.execute(stmt)
+            qs = result.scalars().all()
+            if qs:
+                current_question_id = qs[0].id
+            await websocket.send_json({
+                "type": "exam_load",
+                "exam_id": exam.id,
+                "subject": exam.subject,
+                "course_code": exam.course_code,
+                "duration_minutes": exam.duration_minutes,
+                "questions": [
+                    {"id": q.id, "part": q.part, "q_number": q.q_number, "marks": q.marks, "text": q.text, "has_image": q.has_image}
+                    for q in qs
+                ]
+            })
+            
+            if exam.status == "active":
+                await websocket.send_json({"type": "exam_started"})
+            else:
+                await websocket.send_json({"type": "exam_waiting"})
 
     sequence_num = 0
 
     try:
         while True:
-            # Receive raw Float32 PCM bytes from browser
-            # (vad-web Float32Array.buffer → WebSocket binary frame)
-            audio_bytes: bytes = await websocket.receive_bytes()
+            # Receive either raw float32 audio bytes or JSON text command
+            message = await websocket.receive()
+            if "text" in message:
+                try:
+                    data = json.loads(message["text"])
+                    if data.get("type") == "set_question":
+                        current_question_id = str(data.get("question_id"))
+                    elif data.get("type") == "register":
+                        async with AsyncSessionLocal() as db:
+                            sess = await db.get(DBSession, session_id)
+                            if sess:
+                                sess.student_name = data.get("name")
+                                sess.reg_no = data.get("reg_no")
+                                await db.commit()
+                        await websocket.send_json({
+                            "type": "register_confirm",
+                            "name": data.get("name"),
+                            "reg_no": data.get("reg_no")
+                        })
+                except Exception as e:
+                    print(f"Error parsing text message: {e}")
+                continue
+            
+            if "bytes" not in message:
+                continue
+                
+            audio_bytes: bytes = message["bytes"]
             t0 = time.perf_counter()
 
-            # Whisper inference is blocking — run in thread pool so the
-            # event loop stays free for other WebSocket connections
+            # Whisper inference is blocking
             loop   = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None, _transcriber.transcribe, audio_bytes
@@ -127,14 +356,12 @@ async def websocket_endpoint(websocket: WebSocket):
 
             inference_ms = round((time.perf_counter() - t0) * 1000)
 
-            # Empty transcript: noise burst that slipped past vad-web
             if not result["text"]:
                 await websocket.send_json({"type": "empty", "inference_ms": inference_ms})
                 continue
 
-            pipeline_out = pipeline.process(result)
+            pipeline_out = pipeline.process(result["text"], result["words"])
             
-            # Complete sentence: either {type: transcript} or {type: command}
             if pipeline_out:
                 pipeline_out["inference_ms"] = inference_ms
                 
@@ -144,6 +371,7 @@ async def websocket_endpoint(websocket: WebSocket):
                         sequence_num += 1
                         ans = AnswerSegment(
                             session_id=session_id,
+                            question_id=current_question_id,
                             text=pipeline_out["text"],
                             word_count=len(pipeline_out.get("words", [])),
                             sequence_number=sequence_num
@@ -169,6 +397,9 @@ async def websocket_endpoint(websocket: WebSocket):
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:
             pass
+    finally:
+        if exam_id in exam_connections and websocket in exam_connections[exam_id]:
+            exam_connections[exam_id].remove(websocket)
 
 
 # ── Streaming interim WebSocket ───────────────────────────────────────────────

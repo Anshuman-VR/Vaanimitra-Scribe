@@ -4,7 +4,8 @@
  */
 
 import { setVADStatus, logDebug, clearPending } from './ui.js';
-import { sendAudioChunk, sendInterimChunk } from './websocket.js';
+import { sendAudioChunk, sendInterimChunk, sendMessage } from './websocket.js';
+import { getCurrentQuestionId } from './main.js';
 
 export let micVad = null;
 
@@ -61,6 +62,12 @@ export async function initVAD(vadCfg) {
     onSpeechEnd: (audio) => {
       stopSpeechStream();
       setVADStatus(false);
+      
+      const qid = getCurrentQuestionId();
+      if (qid) {
+        sendMessage({ "type": "set_question", "question_id": qid });
+      }
+      
       sendAudioChunk(audio);
     },
 
@@ -115,7 +122,7 @@ function startSpeechStream() {
   }, 500);
 }
 
-function stopSpeechStream() {
+export function stopSpeechStream() {
   speakingForStream = false;
   clearInterval(streamingTimer);
   streamingTimer = null;

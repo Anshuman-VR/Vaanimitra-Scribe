@@ -47,8 +47,10 @@ class Question(Base):
 class Session(Base):
     __tablename__ = "sessions"
     id = Column(String, primary_key=True, index=True) # UUID
-    student_id = Column(String, ForeignKey("students.id"), nullable=True)
-    exam_id = Column(String, ForeignKey("exams.id"), nullable=True)
+    student_id = Column(String, nullable=True) # Optional link to Student
+    student_name = Column(String, nullable=True)
+    reg_no = Column(String, nullable=True)
+    exam_id = Column(String, ForeignKey("exams.id"))
     started_at = Column(DateTime, default=datetime.utcnow)
     submitted_at = Column(DateTime, nullable=True)
     status = Column(String, default="active") # active/submitted/abandoned
@@ -79,3 +81,35 @@ async def init_db():
 async def get_db():
     async with AsyncSessionLocal() as session:
         yield session
+
+async def seed_demo_exam(db: AsyncSession):
+    from sqlalchemy import select
+    # Check if exam exists
+    stmt = select(Exam).where(Exam.id == "1")
+    result = await db.execute(stmt)
+    if result.scalars().first():
+        return
+
+    # Create Exam
+    demo_exam = Exam(
+        id="1",
+        subject="Design and Analysis of Algorithms",
+        course_code="CSE305R01",
+        scheduled_start=datetime.utcnow(),
+        duration_minutes=90,
+        status="scheduled"
+    )
+    db.add(demo_exam)
+
+    # Create Questions
+    qs = [
+        Question(id="1", exam_id="1", part="A", q_number=1, marks=2, has_image=False, text="Define asymptotic efficiency of an algorithm."),
+        Question(id="2", exam_id="1", part="A", q_number=2, marks=2, has_image=False, text="What are the steps involved in Divide and Conquer approach?"),
+        Question(id="3", exam_id="1", part="A", q_number=3, marks=2, has_image=False, text="What is meant by a stable sort? Give one example."),
+        Question(id="4", exam_id="1", part="B", q_number=4, marks=10, has_image=False, text="Explain why a reverse sorted array results in worst case time complexity for Insertion Sort. Illustrate with an example."),
+        Question(id="5", exam_id="1", part="B", q_number=5, marks=10, has_image=False, text="What is the Maximum Subarray Problem? Describe the Divide and Conquer approach to solve it and analyse its time complexity.")
+    ]
+    for q in qs:
+        db.add(q)
+    
+    await db.commit()

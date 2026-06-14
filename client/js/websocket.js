@@ -3,8 +3,9 @@
  * Handles connections to the server for transcription and commands.
  */
 
-import { setWSStatus, logDebug, updatePending, commitPending, clearPending, showCommand, updateStats } from './ui.js';
+import { setWSStatus, logDebug, updatePending } from './ui.js';
 import { isSpeaking } from './audio.js';
+import { handleExamLoad, handleTranscript, handleCommand, STATE, getState, setState } from './main.js';
 
 let ws = null;
 let wsStream = null;
@@ -58,14 +59,38 @@ export function connectWS() {
         sessionStorage.setItem('session_id', msg.session_id);
         logDebug('Session initialized: ' + msg.session_id);
         break;
+      case 'exam_load':
+        handleExamLoad(msg);
+        break;
+      case 'exam_waiting':
+        // Wait in pre-onboarding, do not render waiting room yet.
+        break;
+      case 'start_onboarding':
+        if (getState() === STATE.PRE_ONBOARDING) {
+          setState(STATE.ONBOARDING);
+          import('./ui.js').then(ui => ui.renderWaitingRoom());
+        }
+        break;
+      case 'exam_started':
+        if (getState() === STATE.WAITING || getState() === STATE.ONBOARDING || getState() === STATE.REGISTRATION) {
+          setState(STATE.COUNTDOWN);
+          import('./ui.js').then(ui => ui.renderCountdown());
+        } else if (getState() === STATE.EXAM) {
+          // Reconnected student already in exam
+        } else {
+          // Reconnected directly into exam
+          import('./ui.js').then(ui => ui.startExam());
+        }
+        break;
+      case 'register_confirm':
+        import('./ui.js').then(ui => ui.confirmRegistrationStatus());
+        break;
       case 'transcript':
-        commitPending(msg.text, msg.words);
-        updateStats(msg.inference_ms, true);
+        handleTranscript(msg.text);
+        // We no longer display words here; UI handles answer string rendering
         break;
       case 'command':
-        clearPending();
-        showCommand(msg.action, msg.raw);
-        updateStats(msg.inference_ms, true);
+        handleCommand(msg);
         break;
       case 'empty':
         logDebug(`Empty chunk (noise) - ${msg.inference_ms} ms`);
@@ -86,6 +111,11 @@ export function sendAudioChunk(float32Array) {
   }
   ws.send(float32Array.buffer);
   logDebug(`Sent ${float32Array.length} samples`);
+}
+
+export function sendMessage(obj) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify(obj));
 }
 
 // ── Stream WebSocket (Live Interim Text) ───────────────────────────────────

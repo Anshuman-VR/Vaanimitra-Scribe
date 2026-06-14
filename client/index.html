@@ -1,84 +1,72 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="AI Scribe — Voice-driven exam interface">
-  <title>AI Scribe Exam Interface</title>
-  <link rel="stylesheet" href="/client/style.css">
+    <meta charset="UTF-8">
+    <title>AI Scribe - Exam</title>
+    <link rel="stylesheet" href="/client/style.css">
 </head>
 <body>
-
-  <!-- Top Bar -->
-  <header class="topbar">
-    <div class="topbar-brand">
-      <h1>AI Scribe</h1>
-      <div class="topbar-subtitle">Institutional Examination System</div>
-    </div>
-    
-    <div class="topbar-controls">
-      <!-- VAD Status -->
-      <div class="status-pill" id="vadBar">
-        <div class="dot" id="vadDot"></div>
-        <span id="vadLabel">Mic Offline</span>
-      </div>
-
-      <!-- WS Connection Status -->
-      <div class="status-pill">
-        <div class="dot" id="wsDot"></div>
-        <span id="wsLabel">Disconnected</span>
-      </div>
-
-      <button id="startBtn" class="btn-start">Start Exam Dictation</button>
-    </div>
-  </header>
-
-  <!-- Main Layout -->
-  <main class="main-layout">
-    
-    <!-- Left Panel: Question Display -->
-    <section class="panel">
-      <header class="panel-header">
-        <span>Question Paper</span>
-        <span id="qTimer">Time Remaining: --:--</span>
-      </header>
-      <div class="panel-content" id="questionArea">
-        <!-- Dynamic questions rendered here via JS -->
-        <div class="question-item">
-          <div class="question-number">Question 1</div>
-          <div class="question-text">Explain the role of mitochondria in a eukaryotic cell. Include details on how it contributes to cellular respiration and energy production.</div>
+    <div id="overlay" class="hidden">
+        <div class="overlay-content">
+            <h1 id="overlay-text">To submit your exam, say:<br>"I CONFIRM SUBMIT"</h1>
+            <button id="cancel-submit-btn">Cancel</button>
+            <div id="submission-spinner" class="hidden">Submitting...</div>
         </div>
-      </div>
-    </section>
+    </div>
 
-    <!-- Right Panel: Answer Dictation Box -->
-    <section class="panel">
-      <header class="panel-header">
-        <span>Your Answer</span>
-        <span id="wordCount">Words: 0</span>
-      </header>
-      <div class="panel-content" id="transcript" role="log" aria-live="polite">
-        <span class="placeholder">Press "Start Exam Dictation" and begin speaking. Your words will appear here...</span>
-      </div>
-      
-      <!-- Command Feedback Bar -->
-      <div id="cmdBar" role="status">
-        <span id="cmdIcon">⚡</span>
-        <span id="cmdText"></span>
-      </div>
-    </section>
+    <div id="success-screen" class="hidden">
+        <h1>✓</h1>
+        <h2>Exam Submitted Successfully</h2>
+        <p>Your answers have been recorded. This window may now be closed.</p>
+        <a id="download-pdf-link" href="#" target="_blank">Download Answer PDF</a>
+        <p id="success-session-id"></p>
+    </div>
 
-  </main>
+    <div id="app-container">
+        <header>
+            <div class="course-info">
+                <span id="course-code">...</span> &middot; <span id="subject">Loading Exam...</span>
+            </div>
+            <div class="timer" id="timer">--:--</div>
+            <div class="status-badge" id="exam-status">Loading</div>
+        </header>
 
-  <!-- Developer Debug Bar -->
-  <footer class="debug-bar">
-    <span id="statInf">Inference: 0 ms</span>
-    <span id="statChunks">Chunks: 0</span>
-    <span id="logPreview">System ready.</span>
-  </footer>
+        <main>
+            <section class="question-panel">
+                <div class="q-meta">
+                    <span id="q-part">Part -</span> &middot; <span id="q-progress">Q0/0</span>
+                    <span id="q-marks" class="marks">[0 marks]</span>
+                </div>
+                <div id="q-text" class="q-text">
+                    Please wait while the exam loads...
+                </div>
+                <div class="q-nav">
+                    <button id="btn-prev">◀ Prev</button>
+                    <button id="btn-next">Next ▶</button>
+                </div>
+            </section>
 
-  <!-- App Entry Point (Type module ensures defer) -->
-  <script type="module" src="/client/js/main.js"></script>
+            <section class="answer-panel">
+                <div id="answer-box">
+                    <span id="committed-text"></span><span id="pending-text" class="pending"></span>
+                </div>
+            </section>
+        </main>
 
+        <footer>
+            <div class="mic-status" id="mic-status">
+                <span class="dot" id="mic-dot"></span> <span id="mic-label">Mic Initializing...</span>
+            </div>
+            <div id="command-feedback" class="hidden"></div>
+            <div class="connection-status" id="ws-status">Connecting...</div>
+        </footer>
+    </div>
+
+    <!-- ORT dependencies -->
+    <script src="/static/ort.wasm.bundle.min.mjs" type="module"></script>
+    <script src="/static/bundle.min.js"></script>
+    
+    <!-- App -->
+    <script type="module" src="/client/js/main.js"></script>
 </body>
 </html>
