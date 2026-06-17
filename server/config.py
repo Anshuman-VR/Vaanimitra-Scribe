@@ -5,7 +5,7 @@
 WHISPER_MODEL        = "large-v3"
 WHISPER_DEVICE       = "cuda"
 WHISPER_COMPUTE_TYPE = "float16"
-CUDA_DEVICE_INDEX    = 3       # GPU 3: 55 GB free, 0% util at last recon
+CUDA_DEVICE_INDEX    = 0       # Mapped to 0 because start.sh sets CUDA_VISIBLE_DEVICES=3
 WHISPER_BEAM_SIZE    = 5
 SAMPLE_RATE          = 16000   # Hz — must match vad-web output (always 16kHz mono)
 
