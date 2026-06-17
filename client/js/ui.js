@@ -60,15 +60,20 @@ export function executeCommand(cmd) {
   showCommandFeedback(action);
 
   if (cmd.requires_tts_confirm) {
-    document.getElementById('overlay-text').textContent = cmd.confirm_prompt || "Please confirm.";
-    document.getElementById('overlay').classList.remove('hidden');
+    const overlay = document.getElementById('overlay');
+    const overlayText = document.getElementById('overlay-text');
+    if (overlay && overlayText) {
+      overlayText.textContent = cmd.confirm_prompt || "Please confirm.";
+      overlay.classList.remove('hidden');
+    }
     speakTTS(cmd.confirm_prompt);
     window.pendingConfirmationCmd = cmd;
     return;
   }
   
   if (action === "submit_confirm") {
-    document.getElementById('overlay').classList.add('hidden');
+    const overlay = document.getElementById('overlay');
+    if (overlay) overlay.classList.add('hidden');
     if (window.pendingConfirmationCmd && window.pendingConfirmationCmd.intent === "submit_exam") {
         submitExam();
     } else if (window.pendingConfirmationCmd) {
@@ -76,11 +81,12 @@ export function executeCommand(cmd) {
         window.pendingConfirmationCmd = null;
         executeCommand(execCmd);
     } else {
-        submitExam(); // fallback if called directly
+        submitExam();
     }
     return;
   } else if (action === "submit_cancel" || action === "cancel_submit") {
-    document.getElementById('overlay').classList.add('hidden');
+    const overlay = document.getElementById('overlay');
+    if (overlay) overlay.classList.add('hidden');
     window.pendingConfirmationCmd = null;
     speakTTS("Action cancelled");
     return;
@@ -178,18 +184,25 @@ export function executeCommand(cmd) {
   }
 
   if (action === "submit_exam" || action === "submit") {
-    document.getElementById('overlay-text').textContent = "To confirm submission, please say exactly: I confirm submit.";
-    document.getElementById('overlay').classList.remove('hidden');
-    speakTTS("To confirm submission, please say exactly: I confirm submit.");
+    const overlay = document.getElementById('overlay');
+    const overlayText = document.getElementById('overlay-text');
+    if (overlay && overlayText) {
+      overlayText.textContent = "To confirm submission, say: I confirm submit. To cancel, say: cancel submit.";
+      overlay.classList.remove('hidden');
+    }
+    speakTTS("To confirm submission, say: I confirm submit. To cancel, say: cancel submit.");
     window.pendingConfirmationCmd = { intent: "submit_exam" };
   }
 }
 
 async function submitExam() {
-  document.getElementById('overlay').classList.remove('hidden');
-  document.getElementById('overlay-text').classList.add('hidden');
-  document.getElementById('cancel-submit-btn').classList.add('hidden');
-  document.getElementById('submission-spinner').classList.remove('hidden');
+  const overlay = document.getElementById('overlay');
+  const overlayText = document.getElementById('overlay-text');
+  const spinner = document.getElementById('submission-spinner');
+  
+  if (overlay) overlay.classList.remove('hidden');
+  if (overlayText) overlayText.textContent = 'Submitting...';
+  if (spinner) spinner.classList.remove('hidden');
   
   try {
     const res = await fetch(`/api/session/${sessionStorage.getItem('session_id')}/submit`, {
@@ -201,17 +214,23 @@ async function submitExam() {
     if (res.ok) {
       const data = await res.json();
       stopSpeechStream();
-      document.getElementById('overlay').classList.add('hidden');
-      document.getElementById('app-container').classList.add('hidden');
-      document.getElementById('success-screen').classList.remove('hidden');
-      document.getElementById('download-pdf-link').href = data.pdf_url;
-      document.getElementById('success-session-id').textContent = `Session: ${sessionStorage.getItem('session_id')}`;
+      if (overlay) overlay.classList.add('hidden');
+      const container = document.getElementById('app-container');
+      container.innerHTML = `
+        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#0a1628; color:white;">
+          <h1>Exam Submitted Successfully</h1>
+          <p style="margin-top:16px; font-size:1.2rem;">Session: ${sessionStorage.getItem('session_id')}</p>
+          ${data.pdf_url ? `<a href="${data.pdf_url}" style="margin-top:16px; color:#60a5fa;">Download PDF</a>` : ''}
+        </div>
+      `;
       speakTTS("Your exam has been submitted successfully. Thank you.");
+    } else {
+      throw new Error('Submission failed');
     }
   } catch (err) {
     console.error(err);
-    alert("Submission failed!");
-    document.getElementById('overlay').classList.add('hidden');
+    if (overlay) overlay.classList.add('hidden');
+    speakTTS("Submission failed. Please try again.");
   }
 }
 
@@ -321,7 +340,7 @@ function playTone() {
 
 function runOnboardingSequence() {
   const utterances = [
-    `Welcome to the AI Scribe examination system. I will be your digital scribe for today's examination in ${examMeta.subject}, course code ${examMeta.course_code}. The maximum marks are ${examMeta.total_marks}. The duration is ${examMeta.duration_minutes} minutes.`,
+    `Welcome. I am Vaani, your AI Scribe for today's examination in ${examMeta.subject}, course code ${examMeta.course_code}. The maximum marks are ${examMeta.total_marks}. The duration is ${examMeta.duration_minutes} minutes.`,
     "This system will transcribe everything you speak into your answer. You can navigate entirely using your voice. Here are the commands available to you.",
     "For navigation: say Next question to go forward. Say Previous question to go back. Say Go to question followed by a number to jump directly.",
     "For reviewing: say Read question to hear the current question again. Say Read my answer to hear what you have dictated so far.",
@@ -466,6 +485,10 @@ export function startExam() {
         </div>
     </footer>
     <div id="command-feedback" class="toast hidden"></div>
+    <div id="overlay" class="hidden" style="position:fixed; inset:0; background:rgba(0,0,0,0.85); display:flex; flex-direction:column; align-items:center; justify-content:center; color:white; z-index:1000;">
+        <p id="overlay-text" style="font-size:1.4rem; text-align:center; max-width:80%; line-height:1.6;"></p>
+        <div id="submission-spinner" class="hidden" style="margin-top:20px; font-size:1.2rem;">Submitting...</div>
+    </div>
   `;
   
   // Reattach listeners
