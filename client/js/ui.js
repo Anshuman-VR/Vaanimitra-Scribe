@@ -315,6 +315,17 @@ export function renderWaitingRoom() {
             <p style="margin-bottom: 8px;"><strong>Register No:</strong> <span id="reg-no">—</span></p>
             <p style="margin-top: 16px; color: #6b7280; font-style: italic;" id="reg-badge">Status: Onboarding</p>
         </div>
+
+        <div style="background: #f9fafb; padding: 24px; border-radius: 8px; border: 1px solid #e5e7eb; width: 100%; max-width: 800px; text-align: left; margin-top: 24px;">
+            <h3 style="margin-bottom: 16px; color: #2563eb; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px;">Information and Usage Guide</h3>
+            <p style="margin-bottom: 12px; line-height: 1.5;">Welcome. I am Vaani, your AI Scribe for today's examination. This system will transcribe everything you speak into your answer. You can navigate entirely using your voice. Here are the commands available to you:</p>
+            <ul style="margin-left: 20px; line-height: 1.6; color: #4b5563;">
+                <li><strong>Navigation:</strong> Say <em>"Next question"</em>, <em>"Previous question"</em>, or <em>"Go to question [number]"</em>.</li>
+                <li><strong>Reviewing:</strong> Say <em>"Read question"</em> or <em>"Read my answer"</em>.</li>
+                <li><strong>Editing:</strong> Say <em>"Delete last sentence"</em>, <em>"Undo"</em>, or <em>"Clear answer"</em>.</li>
+                <li><strong>Finishing:</strong> Say <em>"Submit exam"</em> when you are completely done.</li>
+            </ul>
+        </div>
         
         <div style="margin-top: 48px; text-align: center;">
             <div id="mic-dot" class="mic-dot"></div>
@@ -412,7 +423,7 @@ export function renderCountdown() {
     </div>
   `;
   
-  speakTTS("3", () => {
+  speakTTS("Exam starting in 3", () => {
     document.getElementById('countdown-number').textContent = "2";
     speakTTS("2", () => {
       document.getElementById('countdown-number').textContent = "1";

@@ -83,7 +83,7 @@ DOMAIN_PHRASES = [
     "in other words", "furthermore", "moreover", "however",
 ]
 
-OLLAMA_URL = "http://localhost:45881/api/generate"
+OLLAMA_URL = "http://127.0.0.1:45881/api/generate"
 OLLAMA_MODEL = "qwen2.5:3b-instruct-q4_K_M"
 
 
@@ -205,7 +205,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
 
         print(f"[LLM] Sending to Ollama: '{text}'")
         try:
-            async with httpx.AsyncClient(timeout=2.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.post(
                     OLLAMA_URL,
                     json={
@@ -239,7 +239,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                 )
             return PipelineResult(type="transcript", text=text, confidence="llm")
         except Exception as e:
-            print(f"[LLM] Error: {e}")
+            print(f"[LLM] Error: {type(e).__name__} - {e}")
             return PipelineResult(type="transcript", text=text, confidence="llm_error")
 
     # ── LLM extraction for registration ───────────────────────────────────
@@ -269,7 +269,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
 
         print(f"[LLM Registration] Phase='{phase}' Input='{text}'")
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 response = await client.post(
                     OLLAMA_URL,
                     json={
@@ -302,7 +302,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                 return PipelineResult(type="command", intent=intent, target=extracted, confidence="llm")
 
         except Exception as e:
-            print(f"[LLM Registration] Error: {e}, using raw text fallback")
+            print(f"[LLM Registration] Error: {type(e).__name__} - {e}, using raw text fallback")
             if phase == "ready":
                 ready_kw = ["ready", "yes", "start", "begin", "i am ready"]
                 if any(k in text.lower() for k in ready_kw):
