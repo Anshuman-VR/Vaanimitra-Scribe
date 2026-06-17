@@ -277,7 +277,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                         "prompt": f'Student said: "{text.replace(chr(34), "")}"',
                         "system": prompts[phase],
                         "stream": False,
-                        "options": {"temperature": 0.0, "num_predict": 50, "num_ctx": 256}
+                        "options": {"temperature": 0.0, "num_predict": 50, "num_ctx": 512}
                     }
                 )
 
