@@ -154,7 +154,7 @@ Recent context: {json.dumps(context.last_utterances)}"""
         try:
             async with httpx.AsyncClient(timeout=0.8) as client:
                 response = await client.post(
-                    "http://localhost:11435/api/generate",
+                    "http://localhost:45881/api/generate",
                     json={
                         "model": "qwen2.5:3b-instruct-q4_K_M",
                         "prompt": prompt,
