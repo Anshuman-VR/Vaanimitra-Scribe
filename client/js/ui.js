@@ -291,6 +291,12 @@ export function renderWaitingRoom() {
   const d = new Date();
   const dateStr = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'long', year: 'numeric' });
   
+  const marksDist = {};
+  questions.forEach(q => {
+      marksDist[q.marks] = (marksDist[q.marks] || 0) + 1;
+  });
+  const distStr = Object.entries(marksDist).map(([marks, count]) => `${count} question(s) of ${marks} marks`).join(', ');
+
   container.innerHTML = `
     <header>
         <div class="header-left">
@@ -302,12 +308,13 @@ export function renderWaitingRoom() {
             <div id="timer" class="timer">Waiting</div>
         </div>
     </header>
-    <main style="display:flex; flex-direction:column; align-items:center; justify-content:center; padding: 48px; background: white; margin: 24px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05);">
+    <main style="display:flex; flex-direction:column; align-items:center; justify-content:flex-start; padding: 48px; background: white; margin: 24px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); overflow-y: auto;">
         <h1 style="color: #0a1628; margin-bottom: 8px; font-size: 2rem;">${examMeta.subject}</h1>
         <h2 style="color: #6b7280; margin-bottom: 24px;">${examMeta.course_code}</h2>
         <p style="font-size: 1.1rem; color: #4b5563; margin-bottom: 8px;">Maximum Marks: <strong>${examMeta.total_marks}</strong></p>
         <p style="font-size: 1.1rem; color: #4b5563; margin-bottom: 8px;">Duration: <strong>${examMeta.duration_minutes} minutes</strong></p>
-        <p style="font-size: 1.1rem; color: #4b5563; margin-bottom: 32px;">Date: <strong>${dateStr}</strong></p>
+        <p style="font-size: 1.1rem; color: #4b5563; margin-bottom: 8px;">Date: <strong>${dateStr}</strong></p>
+        <p style="font-size: 1.1rem; color: #4b5563; margin-bottom: 32px;">Questions: <strong>${questions.length}</strong> (${distStr})</p>
         
         <div style="background: #f9fafb; padding: 24px; border-radius: 8px; border: 1px solid #e5e7eb; width: 100%; max-width: 500px; text-align: left;">
             <h3 style="margin-bottom: 16px; color: #2563eb; border-bottom: 1px solid #e5e7eb; padding-bottom: 8px;">Registration Status</h3>

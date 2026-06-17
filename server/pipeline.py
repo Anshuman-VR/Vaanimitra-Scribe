@@ -205,7 +205,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
 
         print(f"[LLM] Sending to Ollama: '{text}'")
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     OLLAMA_URL,
                     json={
@@ -269,7 +269,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
 
         print(f"[LLM Registration] Phase='{phase}' Input='{text}'")
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
+            async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     OLLAMA_URL,
                     json={
