@@ -213,6 +213,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                         "prompt": prompt,
                         "system": system,
                         "stream": False,
+                        "keep_alive": -1,
                         "options": {"temperature": 0.0, "num_predict": 50, "num_ctx": 2048}
                     }
                 )
@@ -277,6 +278,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                         "prompt": f'Student said: "{text.replace(chr(34), "")}"',
                         "system": prompts[phase],
                         "stream": False,
+                        "keep_alive": -1,
                         "options": {"temperature": 0.0, "num_predict": 50, "num_ctx": 2048}
                     }
                 )
