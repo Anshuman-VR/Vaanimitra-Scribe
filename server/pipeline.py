@@ -338,12 +338,15 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
         if not stripped_text:
             return PipelineResult(type="transcript", text=raw_text)
 
-        # Stage 1: Heuristic classification (skipped if Vaani detected — go straight to LLM)
-        res = None
-        if not context.vaani_prefix_detected:
-            res = self._heuristic_classify(stripped_text, context)
+        # Stage 1: Heuristic classification
+        res = self._heuristic_classify(stripped_text, context)
 
-        # Stage 2: LLM classification (fallback, or primary when Vaani prefix detected)
+        # If Vaani prefix was detected, but heuristic decided it was a transcript,
+        # we override that and let the LLM take a look because the user explicitly invoked the wake word.
+        if context.vaani_prefix_detected and res and res.type == "transcript":
+            res = None
+
+        # Stage 2: LLM classification (fallback)
         if not res:
             res = await self._llm_classify(stripped_text, context)
 

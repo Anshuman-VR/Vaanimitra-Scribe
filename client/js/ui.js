@@ -463,15 +463,25 @@ export function startExam() {
     
     <main class="panels">
         <!-- Question Panel -->
-        <section class="panel question-panel">
+        <section class="panel question-panel" style="display:flex; flex-direction:column;">
             <div class="panel-header">
                 <span class="part-badge" id="q-part">Part A</span>
                 <span class="q-progress" id="q-progress">Q1/5</span>
                 <span class="q-marks" id="q-marks">[2 marks]</span>
             </div>
-            <div class="panel-body">
+            <div class="panel-body" style="flex-grow:1;">
                 <p id="q-text" class="question-text">Loading question...</p>
                 <!-- Image goes here if any -->
+            </div>
+            <div class="commands-help" style="margin-top:20px; padding:16px; background:#f3f4f6; border-radius:8px; font-size:0.95rem; border:1px solid #e5e7eb;">
+                <h4 style="margin-bottom:8px; color:#2563eb;">Voice Commands Help</h4>
+                <p style="margin-bottom:8px; color:#4b5563;">Start with <strong>"Vaani, [command]"</strong> for instant actions.</p>
+                <ul style="padding-left:20px; color:#4b5563; line-height:1.6;">
+                    <li><strong>Navigation:</strong> <em>"Next question"</em>, <em>"Previous question"</em>, <em>"Go to question [number]"</em></li>
+                    <li><strong>Reviewing:</strong> <em>"Read question"</em>, <em>"Read my answer"</em></li>
+                    <li><strong>Editing:</strong> <em>"Delete last sentence"</em>, <em>"Undo"</em>, <em>"Clear answer"</em></li>
+                    <li><strong>Finishing:</strong> <em>"Submit exam"</em></li>
+                </ul>
             </div>
         </section>
 
