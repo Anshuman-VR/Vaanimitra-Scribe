@@ -1,6 +1,6 @@
 import { initStreamCapture, initVAD } from './audio.js';
 import { connectWS, connectStreamWS, sendMessage } from './websocket.js';
-import { renderQuestion, executeCommand, updateTimerDisplay, updatePending } from './ui.js';
+import { renderQuestion, executeCommand, updateTimerDisplay, updatePending, getRegistrationPhase } from './ui.js';
 
 export const STATE = {
   PRE_ONBOARDING: 'pre_onboarding',
@@ -139,15 +139,21 @@ export function getSessionContext() {
     total_questions: questions.length,
     answer_word_count: answerWordCount,
     last_utterances: lastUtterances,
-    exam_state: appState.toUpperCase()
+    exam_state: appState.toUpperCase(),
+    registration_phase: getRegistrationPhase()
   };
 }
 
 export function handleCommand(cmd) {
+  const intent = cmd.intent || cmd.action || cmd;
+  
   if (appState === STATE.REGISTRATION || appState === STATE.ONBOARDING || appState === STATE.WAITING) {
-    const action = cmd.action || cmd;
-    if (action === "student_ready") {
+    if (intent === "student_ready") {
       import('./ui.js').then(ui => ui.handleStudentReady());
+    } else if (intent === "register_name") {
+      import('./ui.js').then(ui => ui.handleRegistrationVoice("name", cmd.target));
+    } else if (intent === "register_reg_no") {
+      import('./ui.js').then(ui => ui.handleRegistrationVoice("reg_no", cmd.target));
     }
     return;
   }

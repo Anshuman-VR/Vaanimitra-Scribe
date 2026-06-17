@@ -379,7 +379,8 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                 total_questions=client_context.get("total_questions", 1) if client_context else 1,
                 answer_word_count=client_context.get("answer_word_count", 0) if client_context else 0,
                 last_utterances=client_context.get("last_utterances", []) if client_context else [],
-                exam_state=client_context.get("exam_state", "EXAM") if client_context else "EXAM"
+                exam_state=client_context.get("exam_state", "EXAM") if client_context else "EXAM",
+                registration_phase=client_context.get("registration_phase") if client_context else None
             )
             
             pipeline_res = await pipeline.process(result["text"], ctx)

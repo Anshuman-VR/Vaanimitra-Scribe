@@ -3,6 +3,7 @@ import time
 import httpx
 from dataclasses import dataclass, field
 from rapidfuzz import fuzz
+from rapidfuzz.distance import Levenshtein
 
 @dataclass
 class SessionContext:
@@ -12,6 +13,7 @@ class SessionContext:
     answer_word_count: int
     last_utterances: list
     exam_state: str
+    registration_phase: str | None = None
     vaani_prefix_detected: bool = False
 
 @dataclass
@@ -69,6 +71,9 @@ def extract_number(text: str):
         if w in text: return n
     return None
 
+OLLAMA_URL = "http://localhost:45881/api/generate"
+OLLAMA_MODEL = "qwen2.5:3b-instruct-q4_K_M"
+
 class IntentPipeline:
     def __init__(self):
         self.undo_stack = {}
@@ -84,7 +89,7 @@ class IntentPipeline:
         words = text.strip().split()
         if not words: return text
         first_word = words[0].lower().strip(',.?!')
-        dist = fuzz.distance(first_word, "vaani")
+        dist = Levenshtein.distance(first_word, "vaani")
         if dist <= 2:
             context.vaani_prefix_detected = True
             return " ".join(words[1:]).strip(', ')
@@ -154,9 +159,9 @@ Recent context: {json.dumps(context.last_utterances)}"""
         try:
             async with httpx.AsyncClient(timeout=0.8) as client:
                 response = await client.post(
-                    "http://localhost:45881/api/generate",
+                    OLLAMA_URL,
                     json={
-                        "model": "qwen2.5:3b-instruct-q4_K_M",
+                        "model": OLLAMA_MODEL,
                         "prompt": prompt,
                         "system": system,
                         "stream": False,
@@ -181,12 +186,107 @@ Recent context: {json.dumps(context.last_utterances)}"""
             print(f"[LLM] Error: {e}")
             return PipelineResult(type="transcript", text=text, confidence="llm_error")
 
+    async def _llm_extract_registration(self, text: str, phase: str):
+        """Use LLM to extract registration info from student speech."""
+        
+        if phase == "name":
+            system = """You are extracting a student's name from their spoken response during exam registration.
+The student was asked: "Please state your full name clearly."
+Extract ONLY the person's name — strip all filler words.
+
+Examples:
+- "My name is John Smith" → "John Smith"
+- "I am Rahul Kumar" → "Rahul Kumar"
+- "Anshuman" → "Anshuman"
+- "It's Priya Sharma" → "Priya Sharma"
+- "Uh my name is uh Deepak Verma" → "Deepak Verma"
+
+Respond with ONLY: {"value": "extracted name"}
+No explanation. No markdown."""
+
+        elif phase == "reg_no":
+            system = """You are extracting a student's registration number from their spoken response during exam registration.
+The student was asked: "Please state your register number."
+Extract ONLY the registration/roll number — strip all filler words.
+
+Examples:
+- "My register number is 21CS123" → "21CS123"
+- "It is 12345" → "12345"
+- "P128158003" → "P128158003"
+- "Register number is RA2211003010456" → "RA2211003010456"
+
+Respond with ONLY: {"value": "extracted number"}
+No explanation. No markdown."""
+
+        elif phase == "ready":
+            system = """You are determining if a student is ready to start their exam.
+The student was told: "When you are ready, say: I am ready to start the exam."
+
+Determine if their response indicates readiness.
+Examples of READY: "I am ready", "Ready", "Yes", "Let's start", "I'm ready to start", "Start the exam", "Yes I am ready"
+Examples of NOT READY: "Wait", "Not yet", "Hold on", "Can you repeat", "What?"
+
+Respond with ONLY: {"ready": true} or {"ready": false}
+No explanation. No markdown."""
+        else:
+            return PipelineResult(type="transcript", text=text)
+
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.post(
+                    OLLAMA_URL,
+                    json={
+                        "model": OLLAMA_MODEL,
+                        "prompt": f'Student said: "{text.replace(chr(34), "")}"',
+                        "system": system,
+                        "stream": False,
+                        "options": {
+                            "temperature": 0.0,
+                            "num_predict": 50,
+                            "num_ctx": 256
+                        }
+                    }
+                )
+            
+            raw_res = response.json().get("response", "").strip()
+            if raw_res.startswith("```json"): raw_res = raw_res[7:]
+            if raw_res.endswith("```"): raw_res = raw_res[:-3]
+            raw_res = raw_res.strip()
+            
+            data = json.loads(raw_res)
+            
+            if phase == "ready":
+                if data.get("ready", False):
+                    return PipelineResult(type="command", intent="student_ready", confidence="llm")
+                return None  # Not ready, ignore
+            else:
+                extracted = data.get("value", text).strip()
+                intent = "register_name" if phase == "name" else "register_reg_no"
+                return PipelineResult(type="command", intent=intent, target=extracted, confidence="llm")
+                
+        except Exception as e:
+            print(f"[LLM Registration] Error: {e}, falling back to raw text")
+            # Fallback: use raw text for name/reg, simple heuristic for ready
+            if phase == "ready":
+                ready_phrases = ["ready", "i am ready", "yes", "start", "begin"]
+                if any(p in text.lower() for p in ready_phrases):
+                    return PipelineResult(type="command", intent="student_ready", confidence="fallback")
+                return None
+            else:
+                intent = "register_name" if phase == "name" else "register_reg_no"
+                return PipelineResult(type="command", intent=intent, target=text.strip(), confidence="fallback")
+
     async def process(self, text: str, context: SessionContext):
         raw_text = text.strip()
         if not raw_text: return None
         
+        # Registration: route through LLM for extraction
+        if context.exam_state == "REGISTRATION" and context.registration_phase:
+            return await self._llm_extract_registration(raw_text, context.registration_phase)
+
+        # Onboarding/Waiting: ignore audio (TTS is speaking or waiting for admin)
         if context.exam_state != "EXAM":
-            return PipelineResult(type="transcript", text=raw_text)
+            return None
 
         stripped_text = self._detect_vaani_prefix(raw_text, context)
         if not stripped_text:
@@ -205,13 +305,13 @@ Recent context: {json.dumps(context.last_utterances)}"""
             
         if res.intent == "clear_answer":
             res.requires_tts_confirm = True
-            res.confirm_prompt = f"Did you say: clear your entire answer for Question {context.question_index + 1}? Say I confirm submit to execute or cancel submit to go back."
+            res.confirm_prompt = f"Did you say: clear your entire answer for Question {context.question_index + 1}? Say yes to confirm or no to cancel."
         elif res.intent == "submit_exam":
             res.requires_tts_confirm = True
-            res.confirm_prompt = "Did you say: submit your exam? This cannot be undone. Say I confirm submit to confirm or cancel submit to go back."
+            res.confirm_prompt = "Did you say: submit your exam? This cannot be undone. Say yes to confirm or no to cancel."
         elif res.intent == "delete_last_N" and isinstance(res.target, int) and res.target > 10:
             res.requires_tts_confirm = True
-            res.confirm_prompt = f"Did you say: delete the last {res.target} words? Say I confirm submit to confirm or cancel submit to go back."
+            res.confirm_prompt = f"Did you say: delete the last {res.target} words? Say yes to confirm or no to cancel."
             
         return res
 

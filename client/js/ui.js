@@ -4,6 +4,10 @@ import { stopSpeechStream } from './audio.js';
 
 let registrationPhase = null;
 
+export function getRegistrationPhase() {
+  return registrationPhase;
+}
+
 export function renderInvigilatorSetup() {
   const container = document.getElementById('app-container');
   container.innerHTML = `
@@ -343,22 +347,23 @@ function runOnboardingSequence() {
   speakNext();
 }
 
-export function handleRegistrationVoice(text) {
-  if (registrationPhase === "name") {
-    setRegistrationPhaseData('name', text);
-    document.getElementById('reg-name').textContent = text;
-    speakTTS(`Got it. I heard: ${text}. Please state your register number.`, () => {
+export function handleRegistrationVoice(phase, value) {
+  if (phase === "name") {
+    setRegistrationPhaseData('name', value);
+    document.getElementById('reg-name').textContent = value;
+    speakTTS(`Got it. I heard: ${value}. Please state your register number.`, () => {
       playTone();
       registrationPhase = "reg_no";
     });
-  } else if (registrationPhase === "reg_no") {
-    setRegistrationPhaseData('reg_no', text);
-    document.getElementById('reg-no').textContent = text;
+  } else if (phase === "reg_no") {
+    setRegistrationPhaseData('reg_no', value);
+    document.getElementById('reg-no').textContent = value;
     
     // Server expects name and reg_no, websocket.js handles sending
-    sendMessage({ "type": "register", "name": studentName, "reg_no": text });
+    sendMessage({ "type": "register", "name": studentName, "reg_no": value });
     
-    speakTTS(`Thank you, ${studentName}. Your register number ${text} has been noted.`, () => {
+    speakTTS(`Thank you, ${studentName}. Your register number ${value} has been noted.`, () => {
+      registrationPhase = "ready";
       speakTTS("When you are ready, say: I am ready to start the exam.");
     });
   }
