@@ -41,6 +41,29 @@ export function setCurrentQuestionIndex(idx) {
 
 export function setAnswers(qid, text) {
   answers[qid] = text;
+  saveAnswersToStorage();
+}
+
+export function saveAnswersToStorage() {
+  const sid = sessionStorage.getItem('session_id');
+  if (sid) {
+    localStorage.setItem(`answers_${sid}`, JSON.stringify(answers));
+  }
+}
+
+export function loadAnswersFromStorage() {
+  const sid = sessionStorage.getItem('session_id');
+  if (sid) {
+    const saved = localStorage.getItem(`answers_${sid}`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        Object.assign(answers, parsed);
+      } catch(e) {
+        console.error("Failed to load answers from storage", e);
+      }
+    }
+  }
 }
 
 export let answerHistory = {};
@@ -54,6 +77,7 @@ export function pushUndoState(qid) {
 export function popUndoState(qid) {
   if (answerHistory[qid] && answerHistory[qid].length > 0) {
     answers[qid] = answerHistory[qid].pop();
+    saveAnswersToStorage();
   }
 }
 
@@ -72,6 +96,8 @@ export function handleExamLoad(data) {
       answers[q.id] = "";
     }
   });
+  
+  loadAnswersFromStorage();
 
   // We DO NOT start the timer here anymore.
   // wait for exam_waiting or exam_started from websocket.js
@@ -113,6 +139,7 @@ export function handleTranscript(text) {
   } else {
     answers[qid] = text;
   }
+  saveAnswersToStorage();
   
   renderQuestion(currentQuestionIndex);
   sendMessage({ type: "set_question", question_id: qid });
