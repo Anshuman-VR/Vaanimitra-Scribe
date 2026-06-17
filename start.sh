@@ -7,15 +7,17 @@ source ~/.bashrc
 conda activate STTENV
 cd ~/ai_scribe
 
-# GPU 3 had 55 GB free and 0% utilisation at last check.
-# Change this if GPU 3 is now occupied — check with: nvidia-smi
-export CUDA_VISIBLE_DEVICES=3
+# Dynamically find the GPU with the most free memory
+BEST_GPU=$(nvidia-smi --query-gpu=index,memory.free --format=csv,noheader,nounits | sort -t ',' -k2 -nr | head -n 1 | awk -F',' '{print $1}')
+
+export CUDA_VISIBLE_DEVICES=$BEST_GPU
 
 echo "============================================"
 echo "  AI Scribe — starting"
-echo "  GPU 3 status:"
+echo "  Auto-selected GPU $BEST_GPU (most free memory)"
+echo "  GPU $BEST_GPU status:"
 nvidia-smi --query-gpu=index,memory.free,memory.used,utilization.gpu \
-           --format=csv,noheader -i 3
+           --format=csv,noheader -i $BEST_GPU
 echo ""
 echo "  URL: https://172.16.13.91:8765"
 echo "  (Accept the self-signed cert warning once)"
