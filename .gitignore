@@ -33,3 +33,4 @@ cert.pem
 
 .DS_Store
 *.db
+answers/
