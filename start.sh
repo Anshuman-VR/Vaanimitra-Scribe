@@ -19,6 +19,9 @@ echo "  GPU $BEST_GPU status:"
 nvidia-smi --query-gpu=index,memory.free,memory.used,utilization.gpu \
            --format=csv,noheader -i $BEST_GPU
 echo ""
+echo "  Preloading Qwen model into VRAM..."
+curl -s http://localhost:45881/api/generate -d '{"model": "qwen2.5:3b-instruct-q4_K_M", "prompt": "Wake up", "keep_alive": "15m"}' > /dev/null
+echo ""
 echo "  URL: https://172.16.13.91:8765"
 echo "  (Accept the self-signed cert warning once)"
 echo "============================================"
