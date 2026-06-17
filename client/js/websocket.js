@@ -87,6 +87,7 @@ export function connectWS() {
         break;
       case 'transcript':
         handleTranscript(msg.text);
+        import('./main.js').then(m => m.addUtteranceContext(msg.text));
         // We no longer display words here; UI handles answer string rendering
         break;
       case 'command':
@@ -104,13 +105,34 @@ export function connectWS() {
   };
 }
 
-export function sendAudioChunk(float32Array) {
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+export function sendAudioChunk(float32Array, context = null) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     logDebug('WS not open - dropping audio chunk');
     return;
   }
-  ws.send(float32Array.buffer);
-  logDebug(`Sent ${float32Array.length} samples`);
+  
+  if (context) {
+    const base64Audio = arrayBufferToBase64(float32Array.buffer);
+    ws.send(JSON.stringify({
+      type: "audio",
+      data: base64Audio,
+      context: context
+    }));
+  } else {
+    // Fallback for non-contextual binary sends if any
+    ws.send(float32Array.buffer);
+  }
+  logDebug(`Sent ${float32Array.length} samples with context`);
 }
 
 export function sendMessage(obj) {

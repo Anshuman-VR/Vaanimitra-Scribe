@@ -49,32 +49,99 @@ export function renderQuestion(index) {
 }
 
 export function executeCommand(cmd) {
-  const action = cmd.action || cmd;
+  const action = cmd.intent || cmd.action || cmd;
+  const target = cmd.target;
   const qid = questions.length > 0 ? questions[currentQuestionIndex].id : null;
   
   showCommandFeedback(action);
 
+  if (cmd.requires_tts_confirm) {
+    document.getElementById('overlay-text').textContent = cmd.confirm_prompt || "Please confirm.";
+    document.getElementById('overlay').classList.remove('hidden');
+    speakTTS(cmd.confirm_prompt);
+    window.pendingConfirmationCmd = cmd;
+    return;
+  }
+  
+  if (action === "submit_confirm") {
+    document.getElementById('overlay').classList.add('hidden');
+    if (window.pendingConfirmationCmd && window.pendingConfirmationCmd.intent === "submit_exam") {
+        submitExam();
+    } else if (window.pendingConfirmationCmd) {
+        const execCmd = {...window.pendingConfirmationCmd, requires_tts_confirm: false};
+        window.pendingConfirmationCmd = null;
+        executeCommand(execCmd);
+    } else {
+        submitExam(); // fallback if called directly
+    }
+    return;
+  } else if (action === "submit_cancel" || action === "cancel_submit") {
+    document.getElementById('overlay').classList.add('hidden');
+    window.pendingConfirmationCmd = null;
+    speakTTS("Action cancelled");
+    return;
+  }
+
+  let navigated = false;
   if (action === "nav_next" && currentQuestionIndex < questions.length - 1) {
     setCurrentQuestionIndex(currentQuestionIndex + 1);
-    renderQuestion(currentQuestionIndex);
+    navigated = true;
   } else if (action === "nav_prev" && currentQuestionIndex > 0) {
     setCurrentQuestionIndex(currentQuestionIndex - 1);
-    renderQuestion(currentQuestionIndex);
-  } else if (action === "nav_goto" && cmd.target) {
-    const idx = questions.findIndex(q => q.q_number === cmd.target);
+    navigated = true;
+  } else if (action === "nav_goto" && target) {
+    const idx = questions.findIndex(q => q.q_number === target);
     if (idx !== -1) {
       setCurrentQuestionIndex(idx);
-      renderQuestion(idx);
+      navigated = true;
     }
-  } else if (action === "read_question" && questions.length > 0) {
+  } else if (action === "nav_first") {
+    setCurrentQuestionIndex(0);
+    navigated = true;
+  } else if (action === "nav_last") {
+    setCurrentQuestionIndex(questions.length - 1);
+    navigated = true;
+  }
+  
+  if (navigated) {
+    renderQuestion(currentQuestionIndex);
+    executeCommand("read_question");
+    return;
+  }
+
+  if (action === "read_question" && questions.length > 0) {
     speakTTS(questions[currentQuestionIndex].text);
   } else if (action === "read_answer" && qid) {
     speakTTS(answers[qid] || "No answer dictated yet.");
-  } else if (action === "clear_answer" && qid) {
+  } else if (action === "read_last_line" && qid) {
+    if (answers[qid]) {
+        let parts = answers[qid].split('.').filter(p => p.trim().length > 0);
+        speakTTS(parts.length > 0 ? parts[parts.length - 1] : "No sentence found");
+    }
+  } else if (action === "repeat_last") {
+    // Optional: implement retry of last TTS. Ignored for now.
+  }
+
+  if (action === "check_time") {
+      const timerText = document.getElementById('timer').textContent;
+      speakTTS(`Time remaining: ${timerText}`);
+  } else if (action === "check_question") {
+      speakTTS(`You are on question ${currentQuestionIndex + 1}`);
+  } else if (action === "check_marks" && questions.length > 0) {
+      speakTTS(`This question is worth ${questions[currentQuestionIndex].marks} marks`);
+  } else if (action === "check_total") {
+      speakTTS(`There are ${questions.length} questions in total`);
+  }
+
+  if (["clear_answer", "delete_last_line", "delete_last_word", "delete_last_N"].includes(action) && qid) {
+      import('./main.js').then(m => m.pushUndoState(qid));
+  }
+
+  if (action === "clear_answer" && qid) {
     setAnswers(qid, "");
     renderQuestion(currentQuestionIndex);
     speakTTS("Answer cleared");
-  } else if (action === "delete_last" && qid) {
+  } else if (action === "delete_last_line" && qid) {
     if (answers[qid]) {
       let parts = answers[qid].split('.').filter(p => p.trim().length > 0);
       parts.pop();
@@ -82,14 +149,35 @@ export function executeCommand(cmd) {
       renderQuestion(currentQuestionIndex);
       speakTTS("Last sentence deleted");
     }
-  } else if (action === "submit") {
+  } else if (action === "delete_last_word" && qid) {
+    if (answers[qid]) {
+      let parts = answers[qid].trim().split(' ');
+      parts.pop();
+      setAnswers(qid, parts.join(' '));
+      renderQuestion(currentQuestionIndex);
+      speakTTS("Last word deleted");
+    }
+  } else if (action === "delete_last_N" && qid && target) {
+    if (answers[qid]) {
+      let parts = answers[qid].trim().split(' ');
+      parts = parts.slice(0, Math.max(0, parts.length - target));
+      setAnswers(qid, parts.join(' '));
+      renderQuestion(currentQuestionIndex);
+      speakTTS(`Last ${target} words deleted`);
+    }
+  } else if (action === "undo" && qid) {
+      import('./main.js').then(m => {
+          m.popUndoState(qid);
+          renderQuestion(currentQuestionIndex);
+          speakTTS("Undo completed");
+      });
+  }
+
+  if (action === "submit_exam" || action === "submit") {
+    document.getElementById('overlay-text').textContent = "To confirm submission, please say exactly: I confirm submit.";
     document.getElementById('overlay').classList.remove('hidden');
-  } else if (action === "submit_cancel") {
-    document.getElementById('overlay').classList.add('hidden');
-    speakTTS("Submission cancelled");
-  } else if (action === "submit_confirm") {
-    document.getElementById('overlay').classList.add('hidden');
-    submitExam();
+    speakTTS("To confirm submission, please say exactly: I confirm submit.");
+    window.pendingConfirmationCmd = { intent: "submit_exam" };
   }
 }
 

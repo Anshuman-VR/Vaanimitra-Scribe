@@ -43,6 +43,20 @@ export function setAnswers(qid, text) {
   answers[qid] = text;
 }
 
+export let answerHistory = {};
+
+export function pushUndoState(qid) {
+  if (!answerHistory[qid]) answerHistory[qid] = [];
+  answerHistory[qid].push(answers[qid]);
+  if (answerHistory[qid].length > 10) answerHistory[qid].shift();
+}
+
+export function popUndoState(qid) {
+  if (answerHistory[qid] && answerHistory[qid].length > 0) {
+    answers[qid] = answerHistory[qid].pop();
+  }
+}
+
 export function handleExamLoad(data) {
   examMeta = {
     subject: data.subject,
@@ -102,6 +116,31 @@ export function handleTranscript(text) {
   
   renderQuestion(currentQuestionIndex);
   sendMessage({ type: "set_question", question_id: qid });
+}
+
+export let lastUtterances = [];
+
+export function addUtteranceContext(text) {
+  lastUtterances.push(text);
+  if (lastUtterances.length > 2) {
+    lastUtterances.shift();
+  }
+}
+
+export function getSessionContext() {
+  const qid = getCurrentQuestionId();
+  let answerWordCount = 0;
+  if (qid && answers[qid]) {
+    const text = answers[qid].trim();
+    answerWordCount = text ? text.split(/\s+/).length : 0;
+  }
+  return {
+    question_index: currentQuestionIndex,
+    total_questions: questions.length,
+    answer_word_count: answerWordCount,
+    last_utterances: lastUtterances,
+    exam_state: appState.toUpperCase()
+  };
 }
 
 export function handleCommand(cmd) {

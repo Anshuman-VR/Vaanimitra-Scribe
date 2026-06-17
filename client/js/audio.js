@@ -68,7 +68,10 @@ export async function initVAD(vadCfg) {
         sendMessage({ "type": "set_question", "question_id": qid });
       }
       
-      sendAudioChunk(audio);
+      import('./main.js').then(m => {
+        const ctx = m.getSessionContext();
+        sendAudioChunk(audio, ctx);
+      });
     },
 
     onVADMisfire: () => {

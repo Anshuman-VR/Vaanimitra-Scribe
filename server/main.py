@@ -319,13 +319,20 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
 
     try:
         while True:
-            # Receive either raw float32 audio bytes or JSON text command
             message = await websocket.receive()
+            audio_bytes = None
+            client_context = None
+
             if "text" in message:
                 try:
                     data = json.loads(message["text"])
-                    if data.get("type") == "set_question":
+                    if data.get("type") == "audio":
+                        import base64
+                        audio_bytes = base64.b64decode(data.get("data", ""))
+                        client_context = data.get("context")
+                    elif data.get("type") == "set_question":
                         current_question_id = str(data.get("question_id"))
+                        continue
                     elif data.get("type") == "register":
                         async with AsyncSessionLocal() as db:
                             sess = await db.get(DBSession, session_id)
@@ -338,14 +345,17 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                             "name": data.get("name"),
                             "reg_no": data.get("reg_no")
                         })
+                        continue
                 except Exception as e:
                     print(f"Error parsing text message: {e}")
-                continue
+                    continue
             
-            if "bytes" not in message:
+            if "bytes" in message:
+                audio_bytes = message["bytes"]
+
+            if not audio_bytes:
                 continue
                 
-            audio_bytes: bytes = message["bytes"]
             t0 = time.perf_counter()
 
             # Whisper inference is blocking
@@ -360,9 +370,22 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                 await websocket.send_json({"type": "empty", "inference_ms": inference_ms})
                 continue
 
-            pipeline_out = pipeline.process(result["text"], result["words"])
+            from server.pipeline import SessionContext
+            import dataclasses
             
-            if pipeline_out:
+            ctx = SessionContext(
+                session_id=session_id,
+                question_index=client_context.get("question_index", 0) if client_context else 0,
+                total_questions=client_context.get("total_questions", 1) if client_context else 1,
+                answer_word_count=client_context.get("answer_word_count", 0) if client_context else 0,
+                last_utterances=client_context.get("last_utterances", []) if client_context else [],
+                exam_state=client_context.get("exam_state", "EXAM") if client_context else "EXAM"
+            )
+            
+            pipeline_res = await pipeline.process(result["text"], ctx)
+            
+            if pipeline_res:
+                pipeline_out = dataclasses.asdict(pipeline_res)
                 pipeline_out["inference_ms"] = inference_ms
                 
                 # Persistence logic
@@ -372,8 +395,8 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                         ans = AnswerSegment(
                             session_id=session_id,
                             question_id=current_question_id,
-                            text=pipeline_out["text"],
-                            word_count=len(pipeline_out.get("words", [])),
+                            text=pipeline_out.get("text", "") or "",
+                            word_count=len(result["words"]) if "words" in result else len(pipeline_out.get("text", "").split()),
                             sequence_number=sequence_num
                         )
                         db.add(ans)
@@ -381,7 +404,7 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                     log = AuditLog(
                         session_id=session_id,
                         utterance_type=pipeline_out["type"],
-                        raw_text=pipeline_out.get("raw", pipeline_out.get("text", "")),
+                        raw_text=result["text"],
                         confidence_avg=None
                     )
                     db.add(log)
