@@ -23,7 +23,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.transcriber import Transcriber
-from server.pipeline import Pipeline
+from server.pipeline import pipeline
 from server.database import init_db, AsyncSessionLocal, AnswerSegment, AuditLog, seed_demo_exam, Exam, Question, Session as DBSession
 from sqlalchemy import select, delete
 from datetime import datetime
@@ -270,7 +270,7 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
     await websocket.accept()
     exam_connections[exam_id].add(websocket)
     
-    pipeline = Pipeline()
+
     client   = websocket.client
     
     session_id = websocket.query_params.get("session_id")
