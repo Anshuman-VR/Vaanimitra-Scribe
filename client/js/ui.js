@@ -1,4 +1,4 @@
-import { questions, currentQuestionIndex, setCurrentQuestionIndex, answers, setAnswers, sessionId, speakTTS, examMeta, STATE, getState, setState, setRegistrationPhaseData, studentName, studentReg, startExamTimer, startAppConnection } from './main.js';
+import { questions, currentQuestionIndex, setCurrentQuestionIndex, answers, setAnswers, sessionId, speakTTS, examMeta, STATE, getState, setState, setRegistrationPhaseData, studentName, studentReg, startExamTimer, startAppConnection, pushUndoState, popUndoState } from './main.js';
 import { sendMessage } from './websocket.js';
 import { stopSpeechStream } from './audio.js';
 
@@ -80,8 +80,6 @@ export function executeCommand(cmd) {
         const execCmd = {...window.pendingConfirmationCmd, requires_tts_confirm: false};
         window.pendingConfirmationCmd = null;
         executeCommand(execCmd);
-    } else {
-        submitExam();
     }
     return;
   } else if (action === "submit_cancel" || action === "cancel_submit") {
@@ -120,7 +118,7 @@ export function executeCommand(cmd) {
   }
 
   if (action === "read_question" && questions.length > 0) {
-    speakTTS(questions[currentQuestionIndex].text);
+    speakTTS(`Question ${currentQuestionIndex + 1}. ${questions[currentQuestionIndex].text}`);
   } else if (action === "read_answer" && qid) {
     speakTTS(answers[qid] || "No answer dictated yet.");
   } else if (action === "read_last_line" && qid) {
@@ -143,8 +141,8 @@ export function executeCommand(cmd) {
       speakTTS(`There are ${questions.length} questions in total`);
   }
 
-  if (["clear_answer", "delete_last_line", "delete_last_word", "delete_last_N"].includes(action) && qid) {
-      import('./main.js').then(m => m.pushUndoState(qid));
+  if (["clear_answer", "delete_last_line", "delete_last_word", "delete_last_N", "delete_last_N_lines", "replace_text"].includes(action) && qid) {
+      pushUndoState(qid);
   }
 
   if (action === "clear_answer" && qid) {
@@ -175,12 +173,26 @@ export function executeCommand(cmd) {
       renderQuestion(currentQuestionIndex);
       speakTTS(`Last ${target} words deleted`);
     }
+  } else if (action === "delete_last_N_lines" && qid && target) {
+    if (answers[qid]) {
+      let parts = answers[qid].split('.').filter(p => p.trim().length > 0);
+      parts = parts.slice(0, Math.max(0, parts.length - target));
+      setAnswers(qid, parts.length > 0 ? parts.join('.') + '.' : "");
+      renderQuestion(currentQuestionIndex);
+      speakTTS(`Last ${target} sentences deleted`);
+    }
+  } else if (action === "replace_text" && qid && target && target.old && target.new) {
+    if (answers[qid]) {
+      let text = answers[qid];
+      text = text.replace(new RegExp(target.old, 'gi'), target.new);
+      setAnswers(qid, text);
+      renderQuestion(currentQuestionIndex);
+      speakTTS(`Replaced ${target.old} with ${target.new}`);
+    }
   } else if (action === "undo" && qid) {
-      import('./main.js').then(m => {
-          m.popUndoState(qid);
-          renderQuestion(currentQuestionIndex);
-          speakTTS("Undo completed");
-      });
+      popUndoState(qid);
+      renderQuestion(currentQuestionIndex);
+      speakTTS("Undo completed");
   }
 
   if (action === "submit_exam" || action === "submit") {
@@ -329,7 +341,7 @@ export function renderWaitingRoom() {
             <ul style="margin-left: 20px; line-height: 1.6; color: #4b5563;">
                 <li><strong>Navigation:</strong> Say <em>"Next question"</em>, <em>"Previous question"</em>, or <em>"Go to question [number]"</em>.</li>
                 <li><strong>Reviewing:</strong> Say <em>"Read question"</em> or <em>"Read my answer"</em>.</li>
-                <li><strong>Editing:</strong> Say <em>"Delete last sentence"</em>, <em>"Undo"</em>, or <em>"Clear answer"</em>.</li>
+                <li><strong>Editing:</strong> Say <em>"Delete last sentence"</em>, <em>"Delete last X sentences"</em>, <em>"Replace [word] with [word]"</em>, <em>"Undo"</em>, or <em>"Clear answer"</em>.</li>
                 <li><strong>Finishing:</strong> Say <em>"Submit exam"</em> when you are completely done.</li>
             </ul>
         </div>
@@ -479,7 +491,7 @@ export function startExam() {
                 <ul style="padding-left:20px; color:#4b5563; line-height:1.6;">
                     <li><strong>Navigation:</strong> <em>"Next question"</em>, <em>"Previous question"</em>, <em>"Go to question [number]"</em></li>
                     <li><strong>Reviewing:</strong> <em>"Read question"</em>, <em>"Read my answer"</em></li>
-                    <li><strong>Editing:</strong> <em>"Delete last sentence"</em>, <em>"Undo"</em>, <em>"Clear answer"</em></li>
+                    <li><strong>Editing:</strong> <em>"Delete last sentence"</em>, <em>"Delete last X sentences"</em>, <em>"Replace [word] with [word]"</em>, <em>"Undo"</em>, <em>"Clear answer"</em></li>
                     <li><strong>Finishing:</strong> <em>"Submit exam"</em></li>
                 </ul>
             </div>

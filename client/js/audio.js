@@ -121,7 +121,19 @@ function startSpeechStream() {
   speakingForStream = true;
   streamingTimer = setInterval(() => {
     const combined = getCombinedAudioChunk();
-    if (combined) sendInterimChunk(combined);
+    if (combined) {
+      sendInterimChunk(combined);
+      
+      // Prevent massive buffer clogging: Force commit every 8 seconds of continuous speech
+      if (combined.length >= 16000 * 8) {
+        import('./main.js').then(m => {
+          const ctx = m.getSessionContext();
+          sendAudioChunk(combined, ctx);
+        });
+        speechBuffer = []; // reset buffer
+        clearPending();
+      }
+    }
   }, 500);
 }
 

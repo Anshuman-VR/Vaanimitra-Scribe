@@ -48,7 +48,9 @@ COMMAND_LEXICON = {
     "nav_last":  ["last question", "go to last", "final question"],
     "delete_last_word": ["delete last word", "remove last word", "delete word"],
     "delete_last_line": ["delete last line", "remove last line", "scratch that", "delete last sentence", "remove that"],
+    "delete_last_N_lines": ["delete last lines", "remove last lines", "clear last lines"],
     "delete_last_N":    ["delete last", "remove last"],
+    "replace_text": ["replace word", "replace sentence", "change word", "change sentence", "replace"],
     "clear_answer": ["clear answer", "clear everything", "start over", "erase answer", "delete everything", "wipe answer"],
     "undo": ["undo", "undo that", "take that back", "revert"],
     "read_question": ["read question", "read the question", "what is the question", "repeat question"],
@@ -195,6 +197,8 @@ OUTPUT: Respond with ONLY a JSON object. No explanation.
 {{"type": "command", "intent": "nav_next", "target": null}}
 {{"type": "command", "intent": "nav_goto", "target": 3}}
 {{"type": "command", "intent": "delete_last_N", "target": 5}}
+{{"type": "command", "intent": "delete_last_N_lines", "target": 2}}
+{{"type": "command", "intent": "replace_text", "target": {{"old": "apple", "new": "banana"}}}}
 
 Valid intents: {", ".join(VALID_INTENTS)}"""
 
@@ -204,6 +208,7 @@ Answer length: {context.answer_word_count} words
 Recent: {json.dumps(context.last_utterances[-2:])}"""
 
         print(f"[LLM] Sending to Ollama: '{text}'")
+        t0 = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
@@ -217,6 +222,9 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                         "options": {"temperature": 0.0, "num_predict": 50, "num_ctx": 2048}
                     }
                 )
+            
+            t1 = time.perf_counter()
+            print(f"[LLM] Response received in {t1 - t0:.2f}s")
 
             raw_res = response.json().get("response", "").strip()
             # Strip markdown fences if present
@@ -269,6 +277,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
             return PipelineResult(type="transcript", text=text)
 
         print(f"[LLM Registration] Phase='{phase}' Input='{text}'")
+        t0 = time.perf_counter()
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
@@ -282,6 +291,9 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                         "options": {"temperature": 0.0, "num_predict": 50, "num_ctx": 2048}
                     }
                 )
+            
+            t1 = time.perf_counter()
+            print(f"[LLM Registration] Response received in {t1 - t0:.2f}s")
 
             raw_res = response.json().get("response", "").strip()
             if raw_res.startswith("```json"):
