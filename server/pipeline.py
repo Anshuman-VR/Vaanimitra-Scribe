@@ -172,8 +172,11 @@ class IntentPipeline:
         print(f"[Pipeline] Heuristic: best='{best_match}' score={best_score}")
 
         if best_score >= 88 and best_match:
+            if best_match == "replace_text":
+                return None # Force LLM bypass to extract JSON target
+                
             res = PipelineResult(type="command", intent=best_match)
-            if best_match in ["nav_goto", "delete_last_N"]:
+            if best_match in ["nav_goto", "delete_last_N", "delete_last_N_lines"]:
                 res.target = extract_number(clean)
                 if not res.target and best_match == "nav_goto":
                     return None  # Can't navigate without a target

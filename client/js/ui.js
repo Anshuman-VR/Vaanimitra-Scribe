@@ -46,7 +46,7 @@ export function renderQuestion(index) {
   document.getElementById('q-marks').textContent = `[${q.marks} marks]`;
   document.getElementById('q-text').textContent = q.text;
   
-  document.getElementById('committed-text').textContent = answers[q.id] ? answers[q.id] + " " : "";
+  document.getElementById('committed-text').innerHTML = answers[q.id] ? answers[q.id] + " " : "";
   document.getElementById('pending-text').textContent = "";
   
   sendMessage({ "type": "set_question", "question_id": q.id });
@@ -221,6 +221,7 @@ async function submitExam() {
   if (overlay) overlay.classList.remove('hidden');
   if (overlayText) overlayText.textContent = 'Submitting...';
   if (spinner) spinner.classList.remove('hidden');
+  speakTTS("Submitting...");
   
   try {
     const plainAnswers = {};
