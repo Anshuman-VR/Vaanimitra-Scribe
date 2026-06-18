@@ -86,7 +86,7 @@ export function connectWS() {
         import('./ui.js').then(ui => ui.confirmRegistrationStatus());
         break;
       case 'transcript':
-        handleTranscript(msg.text);
+        handleTranscript(msg.text, msg.words);
         import('./main.js').then(m => m.addUtteranceContext(msg.text));
         // We no longer display words here; UI handles answer string rendering
         break;

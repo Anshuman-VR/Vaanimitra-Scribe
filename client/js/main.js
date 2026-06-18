@@ -123,7 +123,7 @@ export function startExamTimer() {
   }, 1000);
 }
 
-export function handleTranscript(text) {
+export function handleTranscript(text, words = null) {
   if (appState === STATE.REGISTRATION) {
     import('./ui.js').then(ui => ui.handleRegistrationVoice(text));
     return;
@@ -134,10 +134,15 @@ export function handleTranscript(text) {
   const qid = getCurrentQuestionId();
   if (!qid) return;
   
+  let chunkHtml = text;
+  if (words && words.length > 0) {
+      chunkHtml = words.map(w => w.low_confidence ? `<span style="color:#ef4444;">${w.word}</span>` : w.word).join('');
+  }
+  
   if (answers[qid]) {
-    answers[qid] += " " + text;
+    answers[qid] += (chunkHtml.startsWith(' ') ? chunkHtml : " " + chunkHtml);
   } else {
-    answers[qid] = text;
+    answers[qid] = chunkHtml;
   }
   saveAnswersToStorage();
   
@@ -191,7 +196,8 @@ export function handleCommand(cmd) {
 
 export function speakTTS(text, onend = null) {
   window.speechSynthesis.cancel();
-  const ut = new SpeechSynthesisUtterance(text);
+  const cleanText = text.replace(/<[^>]*>?/gm, ''); // Strip HTML tags
+  const ut = new SpeechSynthesisUtterance(cleanText);
   ut.rate = 0.9;
   if (onend) ut.onend = onend;
   window.speechSynthesis.speak(ut);

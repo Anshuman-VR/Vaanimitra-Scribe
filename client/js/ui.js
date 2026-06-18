@@ -117,6 +117,11 @@ export function executeCommand(cmd) {
     return;
   }
 
+  if (action === "stop_tts") {
+      window.speechSynthesis.cancel();
+      return;
+  }
+
   if (action === "read_question" && questions.length > 0) {
     speakTTS(`Question ${currentQuestionIndex + 1}. ${questions[currentQuestionIndex].text}`);
   } else if (action === "read_answer" && qid) {
@@ -132,7 +137,8 @@ export function executeCommand(cmd) {
 
   if (action === "check_time") {
       const timerText = document.getElementById('timer').textContent;
-      speakTTS(`Time remaining: ${timerText}`);
+      const [m, s] = timerText.split(':');
+      speakTTS(`You have ${parseInt(m)} minutes and ${parseInt(s)} seconds remaining.`);
   } else if (action === "check_question") {
       speakTTS(`You are on question ${currentQuestionIndex + 1}`);
   } else if (action === "check_marks" && questions.length > 0) {
@@ -217,10 +223,15 @@ async function submitExam() {
   if (spinner) spinner.classList.remove('hidden');
   
   try {
+    const plainAnswers = {};
+    for (let key in answers) {
+      plainAnswers[key] = answers[key].replace(/<[^>]*>?/gm, '');
+    }
+
     const res = await fetch(`/api/session/${sessionStorage.getItem('session_id')}/submit`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({ answers: answers })
+      body: JSON.stringify({ answers: plainAnswers })
     });
     
     if (res.ok) {

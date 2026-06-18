@@ -14,6 +14,7 @@ import time
 import os
 import uuid
 import json
+import httpx
 from collections import defaultdict
 from contextlib import asynccontextmanager
 from typing import Any
@@ -23,7 +24,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from server.transcriber import Transcriber
-from server.pipeline import pipeline
+from server.pipeline import pipeline, OLLAMA_URL, OLLAMA_MODEL
 from server.database import init_db, AsyncSessionLocal, AnswerSegment, AuditLog, seed_demo_exam, Exam, Question, Session as DBSession
 from sqlalchemy import select, delete
 from datetime import datetime
@@ -41,6 +42,33 @@ STATIC_DIR  = os.path.join(BASE_DIR, "static")
 
 exam_connections: dict[str, set] = defaultdict(set)
 
+# ── LLM Warmup Task ───────────────────────────────────────────────────────────
+
+async def ping_llm():
+    async with httpx.AsyncClient(timeout=60.0) as client:
+        try:
+            print("[System] Pinging LLM to lock into VRAM...")
+            t0 = time.perf_counter()
+            resp = await client.post(
+                OLLAMA_URL,
+                json={
+                    "model": OLLAMA_MODEL,
+                    "prompt": "Wake up",
+                    "keep_alive": -1,
+                    "stream": False,
+                    "options": {"num_predict": 1, "num_ctx": 2048}
+                }
+            )
+            t1 = time.perf_counter()
+            print(f"[System] LLM active. Ping took {t1-t0:.2f}s")
+        except Exception as e:
+            print(f"[System] Warning: LLM ping failed: {e}")
+
+async def keep_llm_warm():
+    while True:
+        await asyncio.sleep(180) # every 3 minutes
+        await ping_llm()
+
 # ── Singleton model ───────────────────────────────────────────────────────────
 _transcriber: Transcriber | None = None
 
@@ -52,6 +80,8 @@ async def lifespan(app: FastAPI):
     async with AsyncSessionLocal() as db:
         await seed_demo_exam(db)
     _transcriber = Transcriber()   # blocks while loading Whisper onto GPU
+    await ping_llm()               # blocks while loading LLM onto GPU
+    asyncio.create_task(keep_llm_warm()) # Keeps it warm every 3 mins
     yield
     print("[server] Shutdown.")
 
@@ -388,6 +418,10 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
             if pipeline_res:
                 pipeline_out = dataclasses.asdict(pipeline_res)
                 pipeline_out["inference_ms"] = inference_ms
+                
+                # Pass word-level confidences for UI highlighting
+                if pipeline_out["type"] == "transcript" and "words" in result:
+                    pipeline_out["words"] = result["words"]
                 
                 # Persistence logic
                 async with AsyncSessionLocal() as db:
