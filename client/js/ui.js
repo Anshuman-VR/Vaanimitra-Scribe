@@ -266,7 +266,8 @@ export function updateTimerDisplay(seconds) {
 }
 
 export function updatePending(text) {
-  document.getElementById('pending-text').textContent = text + "...";
+  const el = document.getElementById('pending-text');
+  if (el) el.textContent = text + "...";
 }
 
 export function clearPending() {

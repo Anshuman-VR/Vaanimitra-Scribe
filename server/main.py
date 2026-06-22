@@ -307,58 +307,55 @@ async def serve_admin():
 async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
     await websocket.accept()
     exam_connections[exam_id].add(websocket)
-    
 
-    client   = websocket.client
-    
-    session_id = websocket.query_params.get("session_id")
-    if not session_id:
-        session_id = str(uuid.uuid4())
-        
-    await websocket.send_json({"type": "session_init", "session_id": session_id})
-        
-    print(f"[WS] Connected: {client} | Session: {session_id}")
-
+    client = websocket.client
     current_question_id = None
-    
-    # Send exam_load immediately and create Session
-    async with AsyncSessionLocal() as db:
-        sess = await db.get(DBSession, session_id)
-        if not sess:
-            sess = DBSession(id=session_id, student_id=None, exam_id=exam_id, started_at=datetime.utcnow(), status="active")
-            db.add(sess)
-            await db.commit()
-
-        exam = await db.get(Exam, exam_id)
-        if exam:
-            stmt = select(Question).where(Question.exam_id == exam_id).order_by(Question.part, Question.q_number)
-            result = await db.execute(stmt)
-            qs = result.scalars().all()
-            if qs:
-                current_question_id = qs[0].id
-            await websocket.send_json({
-                "type": "exam_load",
-                "exam_id": exam.id,
-                "status": exam.status,
-                "subject": exam.subject,
-                "course_code": exam.course_code,
-                "duration_minutes": exam.duration_minutes,
-                "questions": [
-                    {"id": q.id, "part": q.part, "q_number": q.q_number, "marks": q.marks, "text": q.text, "has_image": q.has_image}
-                    for q in qs
-                ]
-            })
-            
-            if exam.status == "active":
-                await websocket.send_json({"type": "exam_started"})
-            elif exam.status == "onboarding":
-                await websocket.send_json({"type": "start_onboarding"})
-            else:
-                await websocket.send_json({"type": "exam_waiting"})
-
     sequence_num = 0
 
     try:
+        session_id = websocket.query_params.get("session_id")
+        if not session_id:
+            session_id = str(uuid.uuid4())
+
+        await websocket.send_json({"type": "session_init", "session_id": session_id})
+
+        print(f"[WS] Connected: {client} | Session: {session_id}")
+
+        # Send exam_load immediately and create Session
+        async with AsyncSessionLocal() as db:
+            sess = await db.get(DBSession, session_id)
+            if not sess:
+                sess = DBSession(id=session_id, student_id=None, exam_id=exam_id, started_at=datetime.utcnow(), status="active")
+                db.add(sess)
+                await db.commit()
+
+            exam = await db.get(Exam, exam_id)
+            if exam:
+                stmt = select(Question).where(Question.exam_id == exam_id).order_by(Question.part, Question.q_number)
+                result = await db.execute(stmt)
+                qs = result.scalars().all()
+                if qs:
+                    current_question_id = qs[0].id
+                await websocket.send_json({
+                    "type": "exam_load",
+                    "exam_id": exam.id,
+                    "status": exam.status,
+                    "subject": exam.subject,
+                    "course_code": exam.course_code,
+                    "duration_minutes": exam.duration_minutes,
+                    "questions": [
+                        {"id": q.id, "part": q.part, "q_number": q.q_number, "marks": q.marks, "text": q.text, "has_image": q.has_image}
+                        for q in qs
+                    ]
+                })
+
+                if exam.status == "active":
+                    await websocket.send_json({"type": "exam_started"})
+                elif exam.status == "onboarding":
+                    await websocket.send_json({"type": "start_onboarding"})
+                else:
+                    await websocket.send_json({"type": "exam_waiting"})
+
         while True:
             message = await websocket.receive()
             audio_bytes = None
@@ -390,13 +387,13 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                 except Exception as e:
                     print(f"Error parsing text message: {e}")
                     continue
-            
+
             if "bytes" in message:
                 audio_bytes = message["bytes"]
 
             if not audio_bytes:
                 continue
-                
+
             t0 = time.perf_counter()
 
             # Whisper inference is blocking
@@ -413,7 +410,7 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
 
             from server.pipeline import SessionContext
             import dataclasses
-            
+
             ctx = SessionContext(
                 session_id=session_id,
                 question_index=client_context.get("question_index", 0) if client_context else 0,
@@ -423,17 +420,17 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                 exam_state=client_context.get("exam_state", "EXAM") if client_context else "EXAM",
                 registration_phase=client_context.get("registration_phase") if client_context else None
             )
-            
+
             pipeline_res = await pipeline.process(result["text"], ctx)
-            
+
             if pipeline_res:
                 pipeline_out = dataclasses.asdict(pipeline_res)
                 pipeline_out["inference_ms"] = inference_ms
-                
+
                 # Pass word-level confidences for UI highlighting
                 if pipeline_out["type"] == "transcript" and "words" in result:
                     pipeline_out["words"] = result["words"]
-                
+
                 # Persistence logic
                 async with AsyncSessionLocal() as db:
                     if pipeline_out["type"] == "transcript":
@@ -446,7 +443,7 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                             sequence_number=sequence_num
                         )
                         db.add(ans)
-                    
+
                     log = AuditLog(
                         session_id=session_id,
                         utterance_type=pipeline_out["type"],
@@ -461,7 +458,8 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
     except WebSocketDisconnect:
         print(f"[WS] Disconnected: {client}")
     except Exception as exc:
-        print(f"[WS] Error: {exc}")
+        import traceback
+        print(f"[WS] Error: {exc}\n{traceback.format_exc()}")
         try:
             await websocket.send_json({"type": "error", "message": str(exc)})
         except Exception:

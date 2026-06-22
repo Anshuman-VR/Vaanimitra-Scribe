@@ -12,8 +12,9 @@ let wsStream = null;
 let wsReconnectTimer = null;
 let isSessionActive = false;
 
-const WS_URL = `wss://${location.host}/ws`;
-const WS_STREAM_URL = `wss://${location.host}/ws/stream`;
+const _wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = `${_wsProto}//${location.host}/ws`;
+const WS_STREAM_URL = `${_wsProto}//${location.host}/ws/stream`;
 
 export function setSessionActive(active) {
   isSessionActive = active;
