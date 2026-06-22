@@ -83,6 +83,7 @@ export function popUndoState(qid) {
 
 export function handleExamLoad(data) {
   examMeta = {
+    status: data.status,
     subject: data.subject,
     course_code: data.course_code,
     duration_minutes: data.duration_minutes,

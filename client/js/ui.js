@@ -381,8 +381,12 @@ function playTone() {
   osc.stop(audioCtx.currentTime + 0.3);
 }
 
-function runOnboardingSequence() {
-  const utterances = [
+export function runOnboardingSequence() {
+  const isDev = window.location.search.includes('dev=true');
+  
+  const utterances = isDev ? [
+    "We will now register your details. Please state your full name clearly after the tone."
+  ] : [
     `Welcome. I am Vaani, your AI Scribe for today's examination in ${examMeta.subject}, course code ${examMeta.course_code}. The maximum marks are ${examMeta.total_marks}. The duration is ${examMeta.duration_minutes} minutes.`,
     "This system will transcribe everything you speak into your answer. You can navigate entirely using your voice. Here are the commands available to you.",
     "For navigation: say Next question to go forward. Say Previous question to go back. Say Go to question followed by a number to jump directly.",
@@ -436,7 +440,22 @@ export function confirmRegistrationStatus() {
   if (el) el.innerHTML = 'Status: Confirmed &#10003;';
 }
 
-export function handleStudentReady() {
+export async function handleStudentReady() {
+  try {
+    const res = await fetch('/api/admin/exam/1/status');
+    const data = await res.json();
+    
+    if (data.status === "active") {
+      speakTTS("Details confirmed. The exam is already active, joining now.", () => {
+        setState(STATE.COUNTDOWN);
+        renderCountdown();
+      });
+      return;
+    }
+  } catch (err) {
+    console.error("Failed to sync global state:", err);
+  }
+
   speakTTS("Details confirmed. Please wait while the invigilator starts the examination.");
   setState(STATE.WAITING);
   document.getElementById('exam-status').textContent = 'Waiting';

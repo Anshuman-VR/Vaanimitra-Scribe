@@ -259,15 +259,23 @@ async def get_exam_status(exam_id: str):
 
 @app.post("/api/admin/exam/{exam_id}/onboard")
 async def start_onboarding(exam_id: str):
-    notified = 0
-    if exam_id in exam_connections:
-        for ws in list(exam_connections[exam_id]):
-            try:
-                await ws.send_json({"type": "start_onboarding"})
-                notified += 1
-            except Exception:
-                pass
-    return {"status": "onboarding_started", "notified_clients": notified}
+    async with AsyncSessionLocal() as db:
+        exam = await db.get(Exam, exam_id)
+        if not exam:
+            return {"error": "Exam not found"}
+        
+        exam.status = "onboarding"
+        await db.commit()
+
+        notified = 0
+        if exam_id in exam_connections:
+            for ws in list(exam_connections[exam_id]):
+                try:
+                    await ws.send_json({"type": "start_onboarding"})
+                    notified += 1
+                except Exception:
+                    pass
+        return {"status": "onboarding_started", "notified_clients": notified}
 
 @app.post("/api/admin/exam/{exam_id}/start")
 async def start_exam(exam_id: str):
@@ -331,6 +339,7 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
             await websocket.send_json({
                 "type": "exam_load",
                 "exam_id": exam.id,
+                "status": exam.status,
                 "subject": exam.subject,
                 "course_code": exam.course_code,
                 "duration_minutes": exam.duration_minutes,
@@ -342,6 +351,8 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
             
             if exam.status == "active":
                 await websocket.send_json({"type": "exam_started"})
+            elif exam.status == "onboarding":
+                await websocket.send_json({"type": "start_onboarding"})
             else:
                 await websocket.send_json({"type": "exam_waiting"})
 

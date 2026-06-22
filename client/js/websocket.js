@@ -66,21 +66,23 @@ export function connectWS() {
         // Wait in pre-onboarding, do not render waiting room yet.
         break;
       case 'start_onboarding':
-        if (getState() === STATE.PRE_ONBOARDING) {
+        if (getState() === STATE.PRE_ONBOARDING || getState() === STATE.PENDING) {
           setState(STATE.ONBOARDING);
           import('./ui.js').then(ui => ui.renderWaitingRoom());
         }
         break;
       case 'exam_started':
-        if (getState() === STATE.WAITING || getState() === STATE.ONBOARDING || getState() === STATE.REGISTRATION) {
+        if (getState() === STATE.WAITING) {
           setState(STATE.COUNTDOWN);
           import('./ui.js').then(ui => ui.renderCountdown());
         } else if (getState() === STATE.EXAM) {
           // Reconnected student already in exam
-        } else {
-          // Reconnected directly into exam
-          import('./ui.js').then(ui => ui.startExam());
+        } else if (getState() === STATE.PRE_ONBOARDING || getState() === STATE.PENDING) {
+          // Connected late to an active exam! Must register first.
+          setState(STATE.ONBOARDING);
+          import('./ui.js').then(ui => ui.renderWaitingRoom());
         }
+        // If ONBOARDING or REGISTRATION, do nothing! Let them finish registering naturally.
         break;
       case 'register_confirm':
         import('./ui.js').then(ui => ui.confirmRegistrationStatus());
