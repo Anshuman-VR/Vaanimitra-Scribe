@@ -30,8 +30,8 @@ BUFFER_MAX_CHARS   = 500
 # Target silence before onSpeechEnd: ~1200 ms → 1200 / 96 = 12.5 → use 12
 VAD_REDEMPTION_FRAMES   = 12    # sent to client in /config endpoint
 VAD_PRE_SPEECH_PAD      = 1     # frames of audio before speech onset to include
-VAD_MIN_SPEECH_FRAMES   = 3     # ignore bursts shorter than this (≈288ms)
-VAD_POS_THRESHOLD       = 0.5
+VAD_MIN_SPEECH_FRAMES   = 2     # ignore bursts shorter than this (lowered for short commands)
+VAD_POS_THRESHOLD       = 0.4
 VAD_NEG_THRESHOLD       = 0.35
 
 # ── Command vocabulary ────────────────────────────────────────────────────────

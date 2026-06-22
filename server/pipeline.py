@@ -52,7 +52,7 @@ COMMAND_LEXICON = {
     "delete_last_N":    ["delete last", "remove last"],
     "replace_text": ["replace word", "replace sentence", "change word", "change sentence", "replace"],
     "clear_answer": ["clear answer", "clear everything", "start over", "erase answer", "delete everything", "wipe answer"],
-    "undo": ["undo", "undo that", "take that back", "revert"],
+    "undo": ["undo", "vani undo", "undo my last change", "revert", "undo that", "take that back"],
     "read_question": ["read question", "read the question", "what is the question", "repeat question"],
     "read_answer": ["read my answer", "read back", "what have I written", "read answer"],
     "read_last_line": ["read last line", "what did I say", "last sentence"],
@@ -261,12 +261,14 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
         prompts = {
             "name": (
                 'Extract ONLY the person\'s name from this statement. Strip filler words like "my name is", "I am", etc.\n'
-                'Examples: "My name is John Smith" → "John Smith", "Anshuman" → "Anshuman"\n'
+                'IMPORTANT: Do NOT omit any middle names or initials. Output the entire name verbatim.\n'
+                'Examples: "My name is John William Smith" → "John William Smith", "Anshuman" → "Anshuman"\n'
                 'Respond with ONLY: {"value": "extracted name"}'
             ),
             "reg_no": (
                 'Extract ONLY the registration/roll number. Strip filler like "my register number is", "it is", etc.\n'
-                'Examples: "My register number is 21CS123" → "21CS123", "P128158003" → "P128158003"\n'
+                'IMPORTANT: Transcribe the number exactly as spoken. Do NOT add arbitrary characters like "P" or any other prefix unless explicitly spoken.\n'
+                'Examples: "My register number is 21CS123" → "21CS123", "One two three" → "123"\n'
                 'Respond with ONLY: {"value": "extracted number"}'
             ),
             "ready": (
@@ -292,7 +294,7 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                         "system": prompts[phase],
                         "stream": False,
                         "keep_alive": -1,
-                        "options": {"temperature": 0.0, "num_predict": 50, "num_ctx": 2048}
+                        "options": {"temperature": 0.0, "num_predict": 100, "num_ctx": 2048}
                     }
                 )
             

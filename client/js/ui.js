@@ -1,4 +1,4 @@
-import { questions, currentQuestionIndex, setCurrentQuestionIndex, answers, setAnswers, sessionId, speakTTS, examMeta, STATE, getState, setState, setRegistrationPhaseData, studentName, studentReg, startExamTimer, startAppConnection, pushUndoState, popUndoState } from './main.js';
+import { questions, currentQuestionIndex, setCurrentQuestionIndex, answers, setAnswers, sessionId, speakTTS, examMeta, STATE, getState, setState, setRegistrationPhaseData, studentName, studentReg, startExamTimer, startAppConnection, pushUndoState, popUndoState, timerInterval } from './main.js';
 import { sendMessage } from './websocket.js';
 import { stopSpeechStream } from './audio.js';
 
@@ -224,6 +224,7 @@ async function submitExam() {
   speakTTS("Submitting...");
   
   try {
+    if (timerInterval) clearInterval(timerInterval);
     const plainAnswers = {};
     for (let key in answers) {
       plainAnswers[key] = answers[key].replace(/<[^>]*>?/gm, '');

@@ -19,7 +19,7 @@ export let sessionId = null;
 export let examMeta = {};
 export let studentName = null;
 export let studentReg = null;
-let timerInterval = null;
+export let timerInterval = null;
 let secondsRemaining = 0;
 
 export function getState() { return appState; }
