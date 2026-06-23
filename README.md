@@ -4,40 +4,35 @@
   <img src="https://img.shields.io/badge/UGC-Guidelines%20Compliant-success?style=for-the-badge" alt="UGC Badge"/>
   <img src="https://img.shields.io/badge/Architecture-Server%20Authoritative-purple?style=for-the-badge" alt="Architecture Badge"/>
   
-  <h1>🎙️ Vaanimitra Scribe</h1>
-  <p><strong>Autonomous, Voice-Controlled Examination Platform for Students with Disabilities</strong></p>
+  <h1>Vaanimitra Scribe</h1>
+  <p><strong>Autonomous Examination Platform for Students with Disabilities</strong></p>
 </div>
 
 ---
 
-## 🌟 Overview
-**Vaanimitra Scribe** is an enterprise-grade, fully autonomous examination system engineered to empower students with physical or learning disabilities (PwD). Designed as a direct replacement for traditional human scribes, Vaanimitra provides a highly accurate, real-time speech-to-text (STT) interface.
+## Overview
+Vaanimitra Scribe is a voice-controlled examination system designed for students with physical or learning disabilities (PwD). It operates as a direct technological replacement for human scribes, providing a highly accurate, real-time speech-to-text interface. 
 
-This system is built from the ground up for **industry adaptation and university-scale deployment**, enforcing strict academic integrity while maximizing accessibility.
+The system is architected for university-scale deployment, balancing strict academic integrity controls with accessibility requirements.
 
-## 🏛️ Compliance & Security
-Vaanimitra Scribe is developed in strict adherence to:
+## Compliance and Security
+The system is developed in adherence to:
 - **RPWD Act 2016 (Rights of Persons with Disabilities Act)**
 - **UGC Guidelines for Conducting Written Examinations for PwD**
 
-By operating entirely **on-premise**, the system ensures:
-- **Zero Data Leakage:** All voice processing and exam data remain within the secure university network.
-- **Strict Auditability:** Every acoustic event, voice command, and dictated transcript is chronologically logged and preserved.
-- **No Human Interference:** Removes the cognitive bias and error-rate of human scribes, providing a 1-to-1 representation of the student's intent.
+Designed for on-premise deployment, the architecture ensures:
+- **Data Sovereignty:** All audio processing and examination records remain within the institutional network.
+- **Auditability:** Every acoustic event, voice command, and transcript is logged with timestamps.
+- **Accuracy:** Eliminates human error and cognitive bias, ensuring a direct representation of the student's dictated answers.
 
-## 🚀 Key Features
-- **Server-Authoritative State Management:** Hardened architecture to prevent client-side manipulation and ensure exam integrity.
-- **Zero-Latency Dual WebSockets:** Parallel data streams for real-time visual feedback and deep, context-aware transcription.
-- **Edge-Optimized Voice Activity Detection:** `onnxruntime-web` + `Silero VAD` filters non-speech noise directly in the browser.
-- **Advanced NLP Command Routing:** Seamlessly distinguishes between dictating an answer (e.g., "Therefore, x equals 5") and system commands (e.g., "Next question").
-- **Automated PDF Generation:** Instant compilation of authenticated, formatted examination scripts upon submission.
+## Architecture and Features
+- **Server-Authoritative State Management:** Hardened server infrastructure prevents client-side state manipulation.
+- **Dual WebSocket Streaming:** Parallel connections manage real-time UI feedback and context-aware final transcription processing simultaneously.
+- **Client-Side Voice Activity Detection (VAD):** WebAssembly implementations filter non-speech noise at the browser level, reducing server bandwidth and compute overhead.
+- **NLP Command Routing:** The natural language processing pipeline distinguishes between dictated examination answers and system navigation commands.
+- **Automated Document Generation:** Compiles authenticated, formatted examination scripts in PDF format upon session submission.
 
-## 🛠️ Setup & Deployment
-> 🚧 **Deployment configurations and setup instructions are coming soon!**
+## Setup and Deployment
+> **Deployment configurations and setup instructions are coming soon.**
 > 
 > *The system is currently undergoing active development and HPC performance tuning.*
-
----
-<div align="center">
-  <p>Built for Accessibility. Engineered for Integrity.</p>
-</div>
