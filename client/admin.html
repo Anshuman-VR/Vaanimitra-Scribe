@@ -244,14 +244,14 @@
                             let badge = '<span class="badge bg-yellow">Waiting</span>';
                             if (currentExamStatus === 'active') badge = '<span class="badge bg-green">Active</span>';
                             
-                            regHtml += \`<tr><td>\${regCount}</td><td>\${name}</td><td>\${regNo}</td><td>\${badge}</td><td>\${s.answer_count}</td></tr>\`;
+                            regHtml += `<tr><td>${regCount}</td><td>${name}</td><td>${regNo}</td><td>${badge}</td><td>${s.answer_count}</td></tr>`;
                         } else if (s.status === 'submitted') {
                             const sub = new Date(s.submitted_at).toLocaleTimeString();
-                            const pdfLink = \`/api/session/\${s.session_id}/pdf\`;
+                            const pdfLink = `/api/session/${s.session_id}/pdf`;
                             const badge = '<span class="badge bg-blue">Submitted</span>';
                             
-                            regHtml += \`<tr><td>\${++regCount}</td><td>\${name}</td><td>\${regNo}</td><td>\${badge}</td><td>\${s.answer_count}</td></tr>\`;
-                            submittedHtml += \`<tr><td>\${shortId}</td><td>\${name}</td><td>\${regNo}</td><td>\${start}</td><td>\${sub}</td><td>\${s.answer_count}</td><td><a href="\${pdfLink}" target="_blank">Download PDF</a></td></tr>\`;
+                            regHtml += `<tr><td>${++regCount}</td><td>${name}</td><td>${regNo}</td><td>${badge}</td><td>${s.answer_count}</td></tr>`;
+                            submittedHtml += `<tr><td>${shortId}</td><td>${name}</td><td>${regNo}</td><td>${start}</td><td>${sub}</td><td>${s.answer_count}</td><td><a href="${pdfLink}" target="_blank">Download PDF</a></td></tr>`;
                         }
                     }
                 });
@@ -265,7 +265,7 @@
                 
                 document.getElementById('registered-tbody').innerHTML = regHtml;
                 document.getElementById('submitted-tbody').innerHTML = submittedHtml;
-                document.getElementById('registered-count').textContent = \`\${regCount} student(s) registered\`;
+                document.getElementById('registered-count').textContent = `${regCount} student(s) registered`;
                 
             } catch(e) { console.error(e); }
         }
@@ -277,14 +277,14 @@
             try {
                 // Public endpoint or admin endpoint? In main.py:
                 // @app.get("/api/session/{session_id}/audit") (no dependencies)
-                const res = await fetch(\`/api/session/\${sid}/audit\`);
+                const res = await fetch(`/api/session/${sid}/audit`);
                 const logs = await res.json();
                 
                 let html = '';
                 logs.forEach(l => {
                     const time = new Date(l.timestamp).toLocaleTimeString();
                     const conf = l.confidence_avg ? (l.confidence_avg * 100).toFixed(1) + '%' : '-';
-                    html += \`<tr><td>\${time}</td><td>\${l.utterance_type}</td><td>\${l.raw_text}</td><td>\${conf}</td></tr>\`;
+                    html += `<tr><td>${time}</td><td>${l.utterance_type}</td><td>${l.raw_text}</td><td>${conf}</td></tr>`;
                 });
                 document.getElementById('audit-tbody').innerHTML = html;
                 document.getElementById('audit-table').style.display = 'table';
