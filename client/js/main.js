@@ -45,14 +45,14 @@ export function setAnswers(qid, text) {
 }
 
 export function saveAnswersToStorage() {
-  const sid = sessionStorage.getItem('session_id');
+  const sid = localStorage.getItem('session_id');
   if (sid) {
     localStorage.setItem(`answers_${sid}`, JSON.stringify(answers));
   }
 }
 
 export function loadAnswersFromStorage() {
-  const sid = sessionStorage.getItem('session_id');
+  const sid = localStorage.getItem('session_id');
   if (sid) {
     const saved = localStorage.getItem(`answers_${sid}`);
     if (saved) {
@@ -97,7 +97,7 @@ export async function handleExamLoad(data) {
 
   // If reconnecting to an active exam, hydrate state from server DB.
   // DB is the source of truth — takes precedence over localStorage.
-  const sid = sessionStorage.getItem('session_id');
+  const sid = localStorage.getItem('session_id');
   if (sid && data.status === 'active') {
     try {
       const res = await fetch(`/api/session/${sid}/state`);
@@ -107,7 +107,7 @@ export async function handleExamLoad(data) {
         saveAnswersToStorage();
       }
       if (state.seconds_remaining != null) {
-        sessionStorage.setItem('seconds_remaining', state.seconds_remaining);
+        localStorage.setItem('seconds_remaining', state.seconds_remaining);
       }
       if (state.current_question_id) {
         const idx = questions.findIndex(q => q.id === state.current_question_id);
@@ -125,9 +125,9 @@ export async function handleExamLoad(data) {
 export function startExamTimer() {
   // Use server-computed value if available (set by exam_started or /state endpoint).
   // This ensures the timer is accurate on reconnect — no full reset.
-  const stored = sessionStorage.getItem('seconds_remaining');
+  const stored = localStorage.getItem('seconds_remaining');
   secondsRemaining = stored ? parseInt(stored, 10) : examMeta.duration_minutes * 60;
-  sessionStorage.removeItem('seconds_remaining'); // consume it
+  localStorage.removeItem('seconds_remaining'); // consume it
 
   updateTimerDisplay(secondsRemaining);
   if (timerInterval) clearInterval(timerInterval);

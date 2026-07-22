@@ -230,7 +230,7 @@ async function submitExam() {
       plainAnswers[key] = answers[key].replace(/<[^>]*>?/gm, '');
     }
 
-    const res = await fetch(`/api/session/${sessionStorage.getItem('session_id')}/submit`, {
+    const res = await fetch(`/api/session/${localStorage.getItem('session_id')}/submit`, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ answers: plainAnswers })
@@ -244,7 +244,7 @@ async function submitExam() {
       container.innerHTML = `
         <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100vh; background:#0a1628; color:white;">
           <h1>Exam Submitted Successfully</h1>
-          <p style="margin-top:16px; font-size:1.2rem;">Session: ${sessionStorage.getItem('session_id')}</p>
+          <p style="margin-top:16px; font-size:1.2rem;">Session: ${localStorage.getItem('session_id')}</p>
           ${data.pdf_url ? `<a href="${data.pdf_url}" style="margin-top:16px; color:#60a5fa;">Download PDF</a>` : ''}
         </div>
       `;
@@ -386,7 +386,7 @@ export function runOnboardingSequence() {
   const isDev = window.location.search.includes('dev=true');
   
   const utterances = isDev ? [
-    "We will now register your details. Please state your full name clearly after the tone."
+    "We will now register your details. Please state your register number clearly after the tone."
   ] : [
     `Welcome. I am Vaani, your AI Scribe for today's examination in ${examMeta.subject}, course code ${examMeta.course_code}. The maximum marks are ${examMeta.total_marks}. The duration is ${examMeta.duration_minutes} minutes.`,
     "This system will transcribe everything you speak into your answer. You can navigate entirely using your voice. Here are the commands available to you.",
@@ -458,19 +458,12 @@ export function confirmRegistrationStatus() {
 }
 
 export async function handleStudentReady() {
-  try {
-    const res = await fetch('/api/admin/exam/1/status');
-    const data = await res.json();
-    
-    if (data.status === "active") {
-      speakTTS("Details confirmed. The exam is already active, joining now.", () => {
-        setState(STATE.COUNTDOWN);
-        renderCountdown();
-      });
-      return;
-    }
-  } catch (err) {
-    console.error("Failed to sync global state:", err);
+  if (examMeta && examMeta.status === "active") {
+    speakTTS("Details confirmed. The exam is already active, joining now.", () => {
+      setState(STATE.COUNTDOWN);
+      renderCountdown();
+    });
+    return;
   }
 
   speakTTS("Details confirmed. Please wait while the invigilator starts the examination.");

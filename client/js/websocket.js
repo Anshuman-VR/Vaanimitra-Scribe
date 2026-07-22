@@ -26,7 +26,7 @@ export function connectWS() {
   if (ws && ws.readyState <= WebSocket.OPEN) return;
 
   let url = WS_URL;
-  const sessionId = sessionStorage.getItem('session_id');
+  const sessionId = localStorage.getItem('session_id');
   if (sessionId) {
     url += `?session_id=${sessionId}`;
   }
@@ -57,7 +57,7 @@ export function connectWS() {
     const msg = JSON.parse(event.data);
     switch (msg.type) {
       case 'session_init':
-        sessionStorage.setItem('session_id', msg.session_id);
+        localStorage.setItem('session_id', msg.session_id);
         logDebug('Session initialized: ' + msg.session_id);
         break;
       case 'exam_load':
@@ -74,7 +74,7 @@ export function connectWS() {
       case 'exam_started':
         // Store server-computed remaining time so timer resumes accurately
         if (msg.seconds_remaining != null) {
-          sessionStorage.setItem('seconds_remaining', msg.seconds_remaining);
+          localStorage.setItem('seconds_remaining', msg.seconds_remaining);
         }
         if (getState() === STATE.WAITING) {
           setState(STATE.COUNTDOWN);
