@@ -64,7 +64,6 @@ export function connectWS() {
         handleExamLoad(msg);
         break;
       case 'exam_waiting':
-        // Wait in pre-onboarding, do not render waiting room yet.
         break;
       case 'start_onboarding':
         if (getState() === STATE.PRE_ONBOARDING || getState() === STATE.PENDING) {
@@ -73,17 +72,26 @@ export function connectWS() {
         }
         break;
       case 'exam_started':
+        // Store server-computed remaining time so timer resumes accurately
+        if (msg.seconds_remaining != null) {
+          sessionStorage.setItem('seconds_remaining', msg.seconds_remaining);
+        }
         if (getState() === STATE.WAITING) {
           setState(STATE.COUNTDOWN);
           import('./ui.js').then(ui => ui.renderCountdown());
         } else if (getState() === STATE.EXAM) {
-          // Reconnected student already in exam
+          // Already in exam (reconnect); reinitialize timer from server value
+          import('./main.js').then(m => m.startExamTimer());
         } else if (getState() === STATE.PRE_ONBOARDING || getState() === STATE.PENDING) {
-          // Connected late to an active exam! Must register first.
           setState(STATE.ONBOARDING);
           import('./ui.js').then(ui => ui.renderWaitingRoom());
         }
-        // If ONBOARDING or REGISTRATION, do nothing! Let them finish registering naturally.
+        break;
+      case 'student_found':
+        import('./ui.js').then(ui => ui.handleStudentFound(msg.name, msg.reg_no));
+        break;
+      case 'student_not_found':
+        import('./ui.js').then(ui => ui.handleStudentNotFound(msg.reg_no));
         break;
       case 'register_confirm':
         import('./ui.js').then(ui => ui.confirmRegistrationStatus());
@@ -91,7 +99,6 @@ export function connectWS() {
       case 'transcript':
         handleTranscript(msg.text, msg.words);
         import('./main.js').then(m => m.addUtteranceContext(msg.text));
-        // We no longer display words here; UI handles answer string rendering
         break;
       case 'command':
         handleCommand(msg);

@@ -259,16 +259,10 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
 
     async def _llm_extract_registration(self, text: str, phase: str):
         prompts = {
-            "name": (
-                'Extract ONLY the person\'s name from this statement. Strip filler words like "my name is", "I am", etc.\n'
-                'IMPORTANT: Do NOT omit any middle names or initials. Output the entire name verbatim.\n'
-                'Examples: "My name is John William Smith" → "John William Smith", "Anshuman" → "Anshuman"\n'
-                'Respond with ONLY: {"value": "extracted name"}'
-            ),
             "reg_no": (
                 'Extract ONLY the registration/roll number. Strip filler like "my register number is", "it is", etc.\n'
                 'IMPORTANT: Transcribe the number exactly as spoken. Do NOT add arbitrary characters like "P" or any other prefix unless explicitly spoken.\n'
-                'Examples: "My register number is 21CS123" → "21CS123", "One two three" → "123"\n'
+                'Examples: "My register number is 128158003" → "128158003", "One two eight" → "128"\n'
                 'Respond with ONLY: {"value": "extracted number"}'
             ),
             "ready": (
@@ -276,6 +270,12 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                 'READY: "I am ready", "Ready", "Yes", "Let\'s start", "Begin"\n'
                 'NOT READY: "Wait", "Not yet", "Hold on", "What?"\n'
                 'Respond with ONLY: {"ready": true} or {"ready": false}'
+            ),
+            "confirm": (
+                'Is the student confirming their identity is correct?\n'
+                'YES: "yes", "correct", "that\'s right", "confirm", "confirmed", "okay", "sure", "yep"\n'
+                'NO: "no", "wrong", "incorrect", "that\'s not me", "try again", "mistake", "nope"\n'
+                'Respond with ONLY: {"confirmed": true} or {"confirmed": false}'
             ),
         }
 
@@ -315,9 +315,13 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                 if data.get("ready", False):
                     return PipelineResult(type="command", intent="student_ready", confidence="llm")
                 return None
+            elif phase == "confirm":
+                if data.get("confirmed", False):
+                    return PipelineResult(type="command", intent="student_ready", confidence="llm")
+                return PipelineResult(type="command", intent="register_confirm_no", confidence="llm")
             else:
                 extracted = data.get("value", text).strip()
-                intent = "register_name" if phase == "name" else "register_reg_no"
+                intent = "register_reg_no"
                 print(f"[LLM Registration] Extracted: '{extracted}'")
                 return PipelineResult(type="command", intent=intent, target=extracted, confidence="llm")
 
@@ -328,7 +332,16 @@ Recent: {json.dumps(context.last_utterances[-2:])}"""
                 if any(k in text.lower() for k in ready_kw):
                     return PipelineResult(type="command", intent="student_ready", confidence="fallback")
                 return None
-            intent = "register_name" if phase == "name" else "register_reg_no"
+            elif phase == "confirm":
+                yes_kw = ["yes", "correct", "confirm", "okay", "right", "yep"]
+                no_kw = ["no", "wrong", "incorrect", "nope", "mistake"]
+                tl = text.lower()
+                if any(k in tl for k in no_kw):
+                    return PipelineResult(type="command", intent="register_confirm_no", confidence="fallback")
+                if any(k in tl for k in yes_kw):
+                    return PipelineResult(type="command", intent="student_ready", confidence="fallback")
+                return None
+            intent = "register_reg_no"
             return PipelineResult(type="command", intent=intent, target=text.strip(), confidence="fallback")
 
     # ── Main entry point ──────────────────────────────────────────────────

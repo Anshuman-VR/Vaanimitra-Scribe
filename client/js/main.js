@@ -81,7 +81,7 @@ export function popUndoState(qid) {
   }
 }
 
-export function handleExamLoad(data) {
+export async function handleExamLoad(data) {
   examMeta = {
     status: data.status,
     subject: data.subject,
@@ -90,31 +90,53 @@ export function handleExamLoad(data) {
     total_marks: data.questions.reduce((sum, q) => sum + q.marks, 0)
   };
   questions = data.questions;
-  
-  // Init answers
-  questions.forEach(q => {
-    if (!(q.id in answers)) {
-      answers[q.id] = "";
-    }
-  });
-  
-  loadAnswersFromStorage();
 
-  // We DO NOT start the timer here anymore.
-  // wait for exam_waiting or exam_started from websocket.js
+  questions.forEach(q => {
+    if (!(q.id in answers)) answers[q.id] = "";
+  });
+
+  // If reconnecting to an active exam, hydrate state from server DB.
+  // DB is the source of truth — takes precedence over localStorage.
+  const sid = sessionStorage.getItem('session_id');
+  if (sid && data.status === 'active') {
+    try {
+      const res = await fetch(`/api/session/${sid}/state`);
+      const state = await res.json();
+      if (state.answers) {
+        Object.assign(answers, state.answers);
+        saveAnswersToStorage();
+      }
+      if (state.seconds_remaining != null) {
+        sessionStorage.setItem('seconds_remaining', state.seconds_remaining);
+      }
+      if (state.current_question_id) {
+        const idx = questions.findIndex(q => q.id === state.current_question_id);
+        if (idx !== -1) setCurrentQuestionIndex(idx);
+      }
+    } catch(e) {
+      console.warn('Server state hydration failed, falling back to localStorage:', e);
+      loadAnswersFromStorage();
+    }
+  } else {
+    loadAnswersFromStorage();
+  }
 }
 
 export function startExamTimer() {
-  secondsRemaining = examMeta.duration_minutes * 60;
+  // Use server-computed value if available (set by exam_started or /state endpoint).
+  // This ensures the timer is accurate on reconnect — no full reset.
+  const stored = sessionStorage.getItem('seconds_remaining');
+  secondsRemaining = stored ? parseInt(stored, 10) : examMeta.duration_minutes * 60;
+  sessionStorage.removeItem('seconds_remaining'); // consume it
+
   updateTimerDisplay(secondsRemaining);
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(() => {
     secondsRemaining--;
     updateTimerDisplay(secondsRemaining);
-    
-    if (secondsRemaining === 300) { // 5 mins
+    if (secondsRemaining === 300) {
       speakTTS("Five minutes remaining.");
-    } else if (secondsRemaining === 60) { // 1 min
+    } else if (secondsRemaining === 60) {
       speakTTS("One minute remaining.");
     } else if (secondsRemaining <= 0) {
       clearInterval(timerInterval);
@@ -183,10 +205,10 @@ export function handleCommand(cmd) {
   if (appState === STATE.REGISTRATION || appState === STATE.ONBOARDING || appState === STATE.WAITING) {
     if (intent === "student_ready") {
       import('./ui.js').then(ui => ui.handleStudentReady());
-    } else if (intent === "register_name") {
-      import('./ui.js').then(ui => ui.handleRegistrationVoice("name", cmd.target));
     } else if (intent === "register_reg_no") {
       import('./ui.js').then(ui => ui.handleRegistrationVoice("reg_no", cmd.target));
+    } else if (intent === "register_confirm_no") {
+      import('./ui.js').then(ui => ui.handleRegistrationRetry());
     }
     return;
   }

@@ -395,7 +395,7 @@ export function runOnboardingSequence() {
     "For editing: say Delete last sentence to remove your last sentence. Say Clear answer to erase your entire answer for the current question.",
     "To submit your exam when you are finished: say Submit exam. You will be asked to confirm with a specific phrase before submission is finalised.",
     "Important: this session is being recorded for audit purposes. Your voice, screen, and all transcriptions are logged. Speak clearly and at a natural pace.",
-    "We will now register your details. Please state your full name clearly after the tone."
+    "We will now register your details. Please state your register number clearly after the tone."
   ];
 
   let idx = 0;
@@ -406,7 +406,7 @@ export function runOnboardingSequence() {
     } else {
       playTone();
       setState(STATE.REGISTRATION);
-      registrationPhase = "name";
+      registrationPhase = "reg_no";
       document.getElementById('exam-status').textContent = 'Registering';
       document.getElementById('reg-badge').textContent = 'Status: Registering';
     }
@@ -415,25 +415,41 @@ export function runOnboardingSequence() {
 }
 
 export function handleRegistrationVoice(phase, value) {
-  if (phase === "name") {
-    setRegistrationPhaseData('name', value);
-    document.getElementById('reg-name').textContent = value;
-    speakTTS(`Got it. I heard: ${value}. Please state your register number.`, () => {
-      playTone();
-      registrationPhase = "reg_no";
-    });
-  } else if (phase === "reg_no") {
+  if (phase === "reg_no") {
     setRegistrationPhaseData('reg_no', value);
     document.getElementById('reg-no').textContent = value;
     
     // Server expects name and reg_no, websocket.js handles sending
-    sendMessage({ "type": "register", "name": studentName, "reg_no": value });
+    sendMessage({ "type": "lookup_student", "reg_no": value });
     
-    speakTTS(`Thank you, ${studentName}. Your register number ${value} has been noted.`, () => {
-      registrationPhase = "ready";
-      speakTTS("When you are ready, say: I am ready to start the exam.");
-    });
+    speakTTS(`Looking up register number ${value}...`);
   }
+}
+
+export function handleStudentFound(name, regNo) {
+  document.getElementById('reg-name').textContent = name;
+  document.getElementById('reg-no').textContent = regNo;
+  setRegistrationPhaseData('name', name);
+  speakTTS(`I found ${name}. Is this correct? Say yes to confirm or no to try again.`, () => {
+    playTone();
+    registrationPhase = "confirm";
+  });
+}
+
+export function handleStudentNotFound(regNo) {
+  speakTTS(`I could not find a student with register number ${regNo}. Please state your register number again.`, () => {
+    playTone();
+    registrationPhase = "reg_no";
+  });
+}
+
+export function handleRegistrationRetry() {
+  document.getElementById('reg-name').textContent = '—';
+  document.getElementById('reg-no').textContent = '—';
+  speakTTS("Let's try again. Please state your register number.", () => {
+    playTone();
+    registrationPhase = "reg_no";
+  });
 }
 
 export function confirmRegistrationStatus() {
