@@ -409,6 +409,7 @@ async def websocket_endpoint(websocket: WebSocket, exam_id: str = "1"):
                     "subject":          exam.subject,
                     "course_code":      exam.course_code,
                     "duration_minutes": exam.duration_minutes,
+                    "is_registered":    bool(sess.student_name),
                     "questions": [
                         {"id": q.id, "part": q.part, "q_number": q.q_number,
                          "marks": q.marks, "text": q.text, "has_image": q.has_image}

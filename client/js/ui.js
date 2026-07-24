@@ -498,7 +498,7 @@ export function renderCountdown() {
   });
 }
 
-export function startExam() {
+export function startExam(isResume = false) {
   setState(STATE.EXAM);
   
   // Restore the 3-panel layout
@@ -577,12 +577,14 @@ export function startExam() {
   document.getElementById('btn-next').onclick = () => executeCommand('nav_next');
   document.getElementById('btn-prev').onclick = () => executeCommand('nav_prev');
   
-  renderQuestion(0);
+  renderQuestion(currentQuestionIndex || 0);
   startExamTimer();
   
-  setTimeout(() => {
-    speakTTS(questions[0].text, () => {
-      speakTTS("Say 'submit exam' when you have completed all questions.");
-    });
-  }, 1000);
+  if (!isResume) {
+    setTimeout(() => {
+      speakTTS(questions[currentQuestionIndex || 0].text, () => {
+        speakTTS("Say 'submit exam' when you have completed all questions.");
+      });
+    }, 1000);
+  }
 }

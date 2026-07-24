@@ -95,6 +95,12 @@ export async function handleExamLoad(data) {
     if (!(q.id in answers)) answers[q.id] = "";
   });
 
+  // Synchronously set state if already registered and exam is active to avoid WS race condition
+  if (data.is_registered && data.status === 'active') {
+    setState(STATE.EXAM);
+    import('./ui.js').then(ui => ui.startExam(true));
+  }
+
   // If reconnecting to an active exam, hydrate state from server DB.
   // DB is the source of truth — takes precedence over localStorage.
   const sid = localStorage.getItem('session_id');
@@ -112,6 +118,9 @@ export async function handleExamLoad(data) {
       if (state.current_question_id) {
         const idx = questions.findIndex(q => q.id === state.current_question_id);
         if (idx !== -1) setCurrentQuestionIndex(idx);
+      }
+      if (getState() === STATE.EXAM) {
+        import('./ui.js').then(ui => ui.renderQuestion(currentQuestionIndex));
       }
     } catch(e) {
       console.warn('Server state hydration failed, falling back to localStorage:', e);
