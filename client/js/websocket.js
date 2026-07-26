@@ -12,8 +12,9 @@ let wsStream = null;
 let wsReconnectTimer = null;
 let isSessionActive = false;
 
-const WS_URL = `wss://${location.host}/ws`;
-const WS_STREAM_URL = `wss://${location.host}/ws/stream`;
+const _wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+const WS_URL = `${_wsProto}//${location.host}/ws`;
+const WS_STREAM_URL = `${_wsProto}//${location.host}/ws/stream`;
 
 export function setSessionActive(active) {
   isSessionActive = active;
@@ -25,7 +26,7 @@ export function connectWS() {
   if (ws && ws.readyState <= WebSocket.OPEN) return;
 
   let url = WS_URL;
-  const sessionId = sessionStorage.getItem('session_id');
+  const sessionId = localStorage.getItem('session_id');
   if (sessionId) {
     url += `?session_id=${sessionId}`;
   }
@@ -56,38 +57,48 @@ export function connectWS() {
     const msg = JSON.parse(event.data);
     switch (msg.type) {
       case 'session_init':
-        sessionStorage.setItem('session_id', msg.session_id);
+        localStorage.setItem('session_id', msg.session_id);
         logDebug('Session initialized: ' + msg.session_id);
         break;
       case 'exam_load':
         handleExamLoad(msg);
         break;
       case 'exam_waiting':
-        // Wait in pre-onboarding, do not render waiting room yet.
         break;
       case 'start_onboarding':
-        if (getState() === STATE.PRE_ONBOARDING) {
+        if (getState() === STATE.PRE_ONBOARDING || getState() === STATE.PENDING) {
           setState(STATE.ONBOARDING);
           import('./ui.js').then(ui => ui.renderWaitingRoom());
         }
         break;
       case 'exam_started':
-        if (getState() === STATE.WAITING || getState() === STATE.ONBOARDING || getState() === STATE.REGISTRATION) {
+        // Store server-computed remaining time so timer resumes accurately
+        if (msg.seconds_remaining != null) {
+          localStorage.setItem('seconds_remaining', msg.seconds_remaining);
+        }
+        if (getState() === STATE.WAITING) {
           setState(STATE.COUNTDOWN);
           import('./ui.js').then(ui => ui.renderCountdown());
         } else if (getState() === STATE.EXAM) {
-          // Reconnected student already in exam
-        } else {
-          // Reconnected directly into exam
-          import('./ui.js').then(ui => ui.startExam());
+          // Already in exam (reconnect); reinitialize timer from server value
+          import('./main.js').then(m => m.startExamTimer());
+        } else if (getState() === STATE.PRE_ONBOARDING || getState() === STATE.PENDING) {
+          setState(STATE.ONBOARDING);
+          import('./ui.js').then(ui => ui.renderWaitingRoom());
         }
+        break;
+      case 'student_found':
+        import('./ui.js').then(ui => ui.handleStudentFound(msg.name, msg.reg_no));
+        break;
+      case 'student_not_found':
+        import('./ui.js').then(ui => ui.handleStudentNotFound(msg.reg_no));
         break;
       case 'register_confirm':
         import('./ui.js').then(ui => ui.confirmRegistrationStatus());
         break;
       case 'transcript':
-        handleTranscript(msg.text);
-        // We no longer display words here; UI handles answer string rendering
+        handleTranscript(msg.text, msg.words);
+        import('./main.js').then(m => m.addUtteranceContext(msg.text));
         break;
       case 'command':
         handleCommand(msg);
@@ -104,13 +115,34 @@ export function connectWS() {
   };
 }
 
-export function sendAudioChunk(float32Array) {
+function arrayBufferToBase64(buffer) {
+  let binary = '';
+  const bytes = new Uint8Array(buffer);
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+      binary += String.fromCharCode(bytes[i]);
+  }
+  return window.btoa(binary);
+}
+
+export function sendAudioChunk(float32Array, context = null) {
   if (!ws || ws.readyState !== WebSocket.OPEN) {
     logDebug('WS not open - dropping audio chunk');
     return;
   }
-  ws.send(float32Array.buffer);
-  logDebug(`Sent ${float32Array.length} samples`);
+  
+  if (context) {
+    const base64Audio = arrayBufferToBase64(float32Array.buffer);
+    ws.send(JSON.stringify({
+      type: "audio",
+      data: base64Audio,
+      context: context
+    }));
+  } else {
+    // Fallback for non-contextual binary sends if any
+    ws.send(float32Array.buffer);
+  }
+  logDebug(`Sent ${float32Array.length} samples with context`);
 }
 
 export function sendMessage(obj) {

@@ -46,8 +46,8 @@ async def generate_answer_pdf(session_id: str, db) -> bytes:
     style_h3 = ParagraphStyle('H3', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=10, alignment=1, spaceAfter=4)
     style_meta = ParagraphStyle('Meta', parent=styles['Normal'], fontName='Helvetica', fontSize=9, textColor=grey, alignment=1, spaceAfter=20)
     
-    style_q_head = ParagraphStyle('QHead', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, textColor=navy, spaceAfter=6)
-    style_q_text = ParagraphStyle('QText', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=10, textColor=grey, spaceAfter=8)
+    style_q_head = ParagraphStyle('QHead', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=11, textColor=black, spaceAfter=6)
+    style_q_text = ParagraphStyle('QText', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=10, textColor=black, spaceAfter=8)
     style_ans = ParagraphStyle('Ans', parent=styles['Normal'], fontName='Helvetica', fontSize=11, textColor=black, leading=14)
     style_no_ans = ParagraphStyle('NoAns', parent=styles['Normal'], fontName='Helvetica-Oblique', fontSize=11, textColor=grey, spaceAfter=12)
 

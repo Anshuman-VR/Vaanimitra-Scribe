@@ -32,11 +32,32 @@
         .bg-green { background: #bbf7d0; color: #166534; }
         .bg-blue { background: #bfdbfe; color: #1e40af; }
         .bg-gray { background: #e5e7eb; color: #374151; }
+
+        /* Login Overlay Styles */
+        #login-overlay { position: fixed; inset: 0; background: #0a1628; display: flex; flex-direction: column; align-items: center; justify-content: center; z-index: 1000; color: white; }
+        #login-box { background: white; color: #0a1628; padding: 32px; border-radius: 8px; text-align: center; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); width: 100%; max-width: 400px; }
+        #login-box input { width: calc(100% - 16px); margin: 16px 0; padding: 12px 8px; font-size: 1rem; }
+        #login-box button { width: 100%; padding: 12px; font-size: 1.1rem; }
     </style>
 </head>
 <body>
-    <div class="container">
-        <h1>AI Scribe - Invigilator Dashboard</h1>
+    <div id="login-overlay">
+        <div id="login-box">
+            <h2 style="margin-top: 0;">Admin Login</h2>
+            <p style="color: #6b7280; margin-bottom: 24px;">Please enter the admin API key to access the dashboard.</p>
+            <form id="login-form">
+                <input type="password" id="admin-key-input" placeholder="Admin Key" required>
+                <button type="submit">Login</button>
+            </form>
+            <p id="login-error" style="color: #ef4444; margin-top: 16px; display: none;">Invalid key. Please try again.</p>
+        </div>
+    </div>
+
+    <div class="container" id="main-content" style="display: none;">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>AI Scribe - Invigilator Dashboard</h1>
+            <button onclick="logout()" style="background-color: #ef4444;">Logout</button>
+        </div>
         
         <!-- Section 1: Exam Control -->
         <h2>Exam Control</h2>
@@ -78,15 +99,62 @@
     <script>
         const host = location.host;
         let currentExamStatus = "scheduled";
+        let autoRefreshInterval = null;
+
+        // Auth Logic
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const key = document.getElementById('admin-key-input').value;
+            // Test the key by attempting to fetch the sessions
+            try {
+                const res = await fetch('/api/admin/sessions', {
+                    headers: { 'X-Admin-Key': key }
+                });
+                if (res.ok) {
+                    sessionStorage.setItem('admin_key', key);
+                    initDashboard();
+                } else {
+                    document.getElementById('login-error').style.display = 'block';
+                }
+            } catch (err) {
+                document.getElementById('login-error').style.display = 'block';
+            }
+        });
+
+        function logout() {
+            sessionStorage.removeItem('admin_key');
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            document.getElementById('main-content').style.display = 'none';
+            document.getElementById('login-overlay').style.display = 'flex';
+            document.getElementById('admin-key-input').value = '';
+            document.getElementById('login-error').style.display = 'none';
+        }
+
+        async function apiFetch(url, options = {}) {
+            const key = sessionStorage.getItem('admin_key');
+            if (!key) {
+                logout();
+                throw new Error("No admin key");
+            }
+            const headers = options.headers || {};
+            headers['X-Admin-Key'] = key;
+            const res = await fetch(url, { ...options, headers });
+            if (res.status === 401) {
+                logout();
+                throw new Error("Unauthorized");
+            }
+            return res;
+        }
 
         // Section 1
         async function loadExam() {
             try {
-                // Fetch actual exam status from new endpoint
-                const statusRes = await fetch('/api/admin/exam/1/status');
+                const statusRes = await apiFetch('/api/admin/exam/1/status');
                 const statusData = await statusRes.json();
                 if (statusData.status) currentExamStatus = statusData.status;
 
+                // The /api/exam/1/questions route is public, so standard fetch is fine, 
+                // but we can use apiFetch for consistency.
                 const res = await fetch('/api/exam/1/questions');
                 const exam = await res.json();
                 const totalMarks = exam.questions.reduce((sum, q) => sum + q.marks, 0);
@@ -117,7 +185,7 @@
         async function startOnboarding() {
             if (!confirm("Broadcast Start Onboarding signal to all students?")) return;
             try {
-                const res = await fetch('/api/admin/exam/1/onboard', { method: 'POST' });
+                const res = await apiFetch('/api/admin/exam/1/onboard', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === "onboarding_started") {
                     document.getElementById('onboard-btn').disabled = true;
@@ -132,7 +200,7 @@
         async function startExamControl() {
             if (!confirm("Start exam for all waiting students?")) return;
             try {
-                const res = await fetch('/api/admin/exam/1/start', { method: 'POST' });
+                const res = await apiFetch('/api/admin/exam/1/start', { method: 'POST' });
                 const data = await res.json();
                 if (data.status === "started") {
                     currentExamStatus = "active";
@@ -150,15 +218,14 @@
         // Section 2 & 3
         async function loadSessions() {
             try {
-                const res = await fetch('/api/admin/sessions');
+                const res = await apiFetch('/api/admin/sessions');
                 const sessions = await res.json();
                 
                 let regHtml = '';
                 let submittedHtml = '';
                 let regCount = 0;
                 
-                // Fetch current actual exam status
-                const statusRes = await fetch('/api/admin/exam/1/status');
+                const statusRes = await apiFetch('/api/admin/exam/1/status');
                 const statusData = await statusRes.json();
                 if (statusData.status && currentExamStatus !== statusData.status) {
                     currentExamStatus = statusData.status;
@@ -208,6 +275,8 @@
             const sid = document.getElementById('audit-session-id').value.trim();
             if(!sid) return;
             try {
+                // Public endpoint or admin endpoint? In main.py:
+                // @app.get("/api/session/{session_id}/audit") (no dependencies)
                 const res = await fetch(`/api/session/${sid}/audit`);
                 const logs = await res.json();
                 
@@ -222,9 +291,19 @@
             } catch(e) { console.error(e); alert('Error loading audit log'); }
         }
 
-        loadExam();
-        loadSessions();
-        setInterval(loadSessions, 10000);
+        function initDashboard() {
+            document.getElementById('login-overlay').style.display = 'none';
+            document.getElementById('main-content').style.display = 'block';
+            loadExam();
+            loadSessions();
+            if (autoRefreshInterval) clearInterval(autoRefreshInterval);
+            autoRefreshInterval = setInterval(loadSessions, 10000);
+        }
+
+        // Check if already logged in on page load
+        if (sessionStorage.getItem('admin_key')) {
+            initDashboard();
+        }
     </script>
 </body>
 </html>

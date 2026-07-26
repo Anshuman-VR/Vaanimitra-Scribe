@@ -59,7 +59,8 @@ export async function initVAD(vadCfg) {
       startSpeechStream();
     },
 
-    onSpeechEnd: (audio) => {
+    onSpeechEnd: () => {
+      const finalChunk = getCombinedAudioChunk();
       stopSpeechStream();
       setVADStatus(false);
       
@@ -68,7 +69,12 @@ export async function initVAD(vadCfg) {
         sendMessage({ "type": "set_question", "question_id": qid });
       }
       
-      sendAudioChunk(audio);
+      if (finalChunk && finalChunk.length > 0) {
+        import('./main.js').then(m => {
+          const ctx = m.getSessionContext();
+          sendAudioChunk(finalChunk, ctx);
+        });
+      }
     },
 
     onVADMisfire: () => {
@@ -118,7 +124,19 @@ function startSpeechStream() {
   speakingForStream = true;
   streamingTimer = setInterval(() => {
     const combined = getCombinedAudioChunk();
-    if (combined) sendInterimChunk(combined);
+    if (combined) {
+      sendInterimChunk(combined);
+      
+      // Prevent massive buffer clogging: Force commit every 8 seconds of continuous speech
+      if (combined.length >= 16000 * 8) {
+        import('./main.js').then(m => {
+          const ctx = m.getSessionContext();
+          sendAudioChunk(combined, ctx);
+        });
+        speechBuffer = []; // reset buffer
+        clearPending();
+      }
+    }
   }, 500);
 }
 

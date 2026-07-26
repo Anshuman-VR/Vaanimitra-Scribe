@@ -5,7 +5,7 @@
 WHISPER_MODEL        = "large-v3"
 WHISPER_DEVICE       = "cuda"
 WHISPER_COMPUTE_TYPE = "float16"
-CUDA_DEVICE_INDEX    = 3       # GPU 3: 55 GB free, 0% util at last recon
+CUDA_DEVICE_INDEX    = 0       # Mapped to 0 because start.sh sets CUDA_VISIBLE_DEVICES=3
 WHISPER_BEAM_SIZE    = 5
 SAMPLE_RATE          = 16000   # Hz — must match vad-web output (always 16kHz mono)
 
@@ -30,8 +30,8 @@ BUFFER_MAX_CHARS   = 500
 # Target silence before onSpeechEnd: ~1200 ms → 1200 / 96 = 12.5 → use 12
 VAD_REDEMPTION_FRAMES   = 12    # sent to client in /config endpoint
 VAD_PRE_SPEECH_PAD      = 1     # frames of audio before speech onset to include
-VAD_MIN_SPEECH_FRAMES   = 3     # ignore bursts shorter than this (≈288ms)
-VAD_POS_THRESHOLD       = 0.5
+VAD_MIN_SPEECH_FRAMES   = 2     # ignore bursts shorter than this (lowered for short commands)
+VAD_POS_THRESHOLD       = 0.4
 VAD_NEG_THRESHOLD       = 0.35
 
 # ── Command vocabulary ────────────────────────────────────────────────────────

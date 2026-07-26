@@ -76,15 +76,18 @@ python -c "
 from server.config import WHISPER_MODEL, PORT, CUDA_DEVICE_INDEX, COMMAND_PREFIXES
 print('config OK  —', WHISPER_MODEL, 'port', PORT, 'GPU', CUDA_DEVICE_INDEX)
 
-from server.pipeline import Pipeline
-p = Pipeline()
-r = p.process({'text': 'Hello world.', 'words': []})
-assert r == {'type': 'transcript', 'text': 'Hello world.', 'words': []}, repr(r)
+from server.pipeline import pipeline
+import asyncio
+from server.pipeline import SessionContext
+
+ctx = SessionContext(session_id='test', question_index=0, total_questions=1, answer_word_count=0, last_utterances=[], exam_state='EXAM')
+r = asyncio.run(pipeline.process('Hello world.', ctx))
+assert r.type == 'transcript', repr(r)
 print('pipeline OK —', r)
 
-r2 = p.process({'text': 'Next question.', 'words': []})
-assert r2['type'] == 'command', repr(r2)
-assert r2['action'] == 'nav_next', repr(r2)
+r2 = asyncio.run(pipeline.process('Next question.', ctx))
+assert r2.type == 'command', repr(r2)
+assert r2.intent == 'nav_next', repr(r2)
 print('command routing OK —', r2)
 
 print('All imports and logic checks passed.')

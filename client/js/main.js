@@ -1,6 +1,6 @@
 import { initStreamCapture, initVAD } from './audio.js';
 import { connectWS, connectStreamWS, sendMessage } from './websocket.js';
-import { renderQuestion, executeCommand, updateTimerDisplay, updatePending } from './ui.js';
+import { renderQuestion, executeCommand, updateTimerDisplay, updatePending, getRegistrationPhase } from './ui.js';
 
 export const STATE = {
   PRE_ONBOARDING: 'pre_onboarding',
@@ -19,7 +19,7 @@ export let sessionId = null;
 export let examMeta = {};
 export let studentName = null;
 export let studentReg = null;
-let timerInterval = null;
+export let timerInterval = null;
 let secondsRemaining = 0;
 
 export function getState() { return appState; }
@@ -41,39 +41,111 @@ export function setCurrentQuestionIndex(idx) {
 
 export function setAnswers(qid, text) {
   answers[qid] = text;
+  saveAnswersToStorage();
 }
 
-export function handleExamLoad(data) {
+export function saveAnswersToStorage() {
+  const sid = localStorage.getItem('session_id');
+  if (sid) {
+    localStorage.setItem(`answers_${sid}`, JSON.stringify(answers));
+  }
+}
+
+export function loadAnswersFromStorage() {
+  const sid = localStorage.getItem('session_id');
+  if (sid) {
+    const saved = localStorage.getItem(`answers_${sid}`);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        Object.assign(answers, parsed);
+      } catch(e) {
+        console.error("Failed to load answers from storage", e);
+      }
+    }
+  }
+}
+
+export let answerHistory = {};
+
+export function pushUndoState(qid) {
+  if (!answerHistory[qid]) answerHistory[qid] = [];
+  answerHistory[qid].push(answers[qid]);
+  if (answerHistory[qid].length > 10) answerHistory[qid].shift();
+}
+
+export function popUndoState(qid) {
+  if (answerHistory[qid] && answerHistory[qid].length > 0) {
+    answers[qid] = answerHistory[qid].pop();
+    saveAnswersToStorage();
+  }
+}
+
+export async function handleExamLoad(data) {
   examMeta = {
+    status: data.status,
     subject: data.subject,
     course_code: data.course_code,
     duration_minutes: data.duration_minutes,
     total_marks: data.questions.reduce((sum, q) => sum + q.marks, 0)
   };
   questions = data.questions;
-  
-  // Init answers
+
   questions.forEach(q => {
-    if (!(q.id in answers)) {
-      answers[q.id] = "";
-    }
+    if (!(q.id in answers)) answers[q.id] = "";
   });
 
-  // We DO NOT start the timer here anymore.
-  // wait for exam_waiting or exam_started from websocket.js
+  // Synchronously set state if already registered and exam is active to avoid WS race condition
+  if (data.is_registered && data.status === 'active') {
+    setState(STATE.EXAM);
+    import('./ui.js').then(ui => ui.startExam(true));
+  }
+
+  // If reconnecting to an active exam, hydrate state from server DB.
+  // DB is the source of truth — takes precedence over localStorage.
+  const sid = localStorage.getItem('session_id');
+  if (sid && data.status === 'active') {
+    try {
+      const res = await fetch(`/api/session/${sid}/state`);
+      const state = await res.json();
+      if (state.answers) {
+        Object.assign(answers, state.answers);
+        saveAnswersToStorage();
+      }
+      if (state.seconds_remaining != null) {
+        localStorage.setItem('seconds_remaining', state.seconds_remaining);
+      }
+      if (state.current_question_id) {
+        const idx = questions.findIndex(q => q.id === state.current_question_id);
+        if (idx !== -1) setCurrentQuestionIndex(idx);
+      }
+      if (getState() === STATE.EXAM) {
+        import('./ui.js').then(ui => ui.renderQuestion(currentQuestionIndex));
+      }
+    } catch(e) {
+      console.warn('Server state hydration failed, falling back to localStorage:', e);
+      loadAnswersFromStorage();
+    }
+  } else {
+    loadAnswersFromStorage();
+  }
 }
 
 export function startExamTimer() {
-  secondsRemaining = examMeta.duration_minutes * 60;
+  // Use server-computed value if available (set by exam_started or /state endpoint).
+  // This ensures the timer is accurate on reconnect — no full reset.
+  const stored = localStorage.getItem('seconds_remaining');
+  secondsRemaining = stored ? parseInt(stored, 10) : examMeta.duration_minutes * 60;
+  localStorage.removeItem('seconds_remaining'); // consume it
+
   updateTimerDisplay(secondsRemaining);
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = setInterval(() => {
     secondsRemaining--;
     updateTimerDisplay(secondsRemaining);
-    
-    if (secondsRemaining === 300) { // 5 mins
+    if (secondsRemaining === 300) {
       speakTTS("Five minutes remaining.");
-    } else if (secondsRemaining === 60) { // 1 min
+    } else if (secondsRemaining === 60) {
       speakTTS("One minute remaining.");
     } else if (secondsRemaining <= 0) {
       clearInterval(timerInterval);
@@ -83,7 +155,7 @@ export function startExamTimer() {
   }, 1000);
 }
 
-export function handleTranscript(text) {
+export function handleTranscript(text, words = null) {
   if (appState === STATE.REGISTRATION) {
     import('./ui.js').then(ui => ui.handleRegistrationVoice(text));
     return;
@@ -94,21 +166,58 @@ export function handleTranscript(text) {
   const qid = getCurrentQuestionId();
   if (!qid) return;
   
-  if (answers[qid]) {
-    answers[qid] += " " + text;
-  } else {
-    answers[qid] = text;
+  let chunkHtml = text;
+  if (words && words.length > 0) {
+      chunkHtml = words.map(w => w.low_confidence ? `<span style="color:#ef4444;">${w.word}</span>` : w.word).join('');
   }
+  
+  if (answers[qid]) {
+    answers[qid] += (chunkHtml.startsWith(' ') ? chunkHtml : " " + chunkHtml);
+  } else {
+    answers[qid] = chunkHtml;
+  }
+  saveAnswersToStorage();
   
   renderQuestion(currentQuestionIndex);
   sendMessage({ type: "set_question", question_id: qid });
 }
 
+export let lastUtterances = [];
+
+export function addUtteranceContext(text) {
+  lastUtterances.push(text);
+  if (lastUtterances.length > 2) {
+    lastUtterances.shift();
+  }
+}
+
+export function getSessionContext() {
+  const qid = getCurrentQuestionId();
+  let answerWordCount = 0;
+  if (qid && answers[qid]) {
+    const text = answers[qid].trim();
+    answerWordCount = text ? text.split(/\s+/).length : 0;
+  }
+  return {
+    question_index: currentQuestionIndex,
+    total_questions: questions.length,
+    answer_word_count: answerWordCount,
+    last_utterances: lastUtterances,
+    exam_state: appState.toUpperCase(),
+    registration_phase: getRegistrationPhase()
+  };
+}
+
 export function handleCommand(cmd) {
+  const intent = cmd.intent || cmd.action || cmd;
+  
   if (appState === STATE.REGISTRATION || appState === STATE.ONBOARDING || appState === STATE.WAITING) {
-    const action = cmd.action || cmd;
-    if (action === "student_ready") {
+    if (intent === "student_ready") {
       import('./ui.js').then(ui => ui.handleStudentReady());
+    } else if (intent === "register_reg_no") {
+      import('./ui.js').then(ui => ui.handleRegistrationVoice("reg_no", cmd.target));
+    } else if (intent === "register_confirm_no") {
+      import('./ui.js').then(ui => ui.handleRegistrationRetry());
     }
     return;
   }
@@ -119,7 +228,8 @@ export function handleCommand(cmd) {
 
 export function speakTTS(text, onend = null) {
   window.speechSynthesis.cancel();
-  const ut = new SpeechSynthesisUtterance(text);
+  const cleanText = text.replace(/<[^>]*>?/gm, ''); // Strip HTML tags
+  const ut = new SpeechSynthesisUtterance(cleanText);
   ut.rate = 0.9;
   if (onend) ut.onend = onend;
   window.speechSynthesis.speak(ut);
